@@ -3,7 +3,7 @@ module github.com/akhiljames/pregao
 go 1.25.0
 
 require (
-	github.com/akhiljames/proto v0.0.0-20260925084803-914f3e817034
+	github.com/akhiljames/proto v0.0.0-20260925100400-3b199cd26824
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/redis/go-redis/v9 v9.22.0

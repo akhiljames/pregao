@@ -339,6 +339,8 @@ type ExecuteTradeRequest struct {
 	Side           ExecuteTradeRequest_Side `protobuf:"varint,6,opt,name=side,proto3,enum=pregao.v1.ExecuteTradeRequest_Side" json:"side,omitempty"`
 	Quantity       string                   `protobuf:"bytes,7,opt,name=quantity,proto3" json:"quantity,omitempty"` // Decimal string
 	IdempotencyKey string                   `protobuf:"bytes,8,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	PortfolioId    string                   `protobuf:"bytes,9,opt,name=portfolio_id,json=portfolioId,proto3" json:"portfolio_id,omitempty"`
+	LivroHoldId    string                   `protobuf:"bytes,10,opt,name=livro_hold_id,json=livroHoldId,proto3" json:"livro_hold_id,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -425,6 +427,20 @@ func (x *ExecuteTradeRequest) GetQuantity() string {
 func (x *ExecuteTradeRequest) GetIdempotencyKey() string {
 	if x != nil {
 		return x.IdempotencyKey
+	}
+	return ""
+}
+
+func (x *ExecuteTradeRequest) GetPortfolioId() string {
+	if x != nil {
+		return x.PortfolioId
+	}
+	return ""
+}
+
+func (x *ExecuteTradeRequest) GetLivroHoldId() string {
+	if x != nil {
+		return x.LivroHoldId
 	}
 	return ""
 }
@@ -619,7 +635,7 @@ const file_pregao_v1_pregao_proto_rawDesc = "" +
 	"\rvalid_symbols\x18\x01 \x03(\v24.pregao.v1.ValidateTickersResponse.ValidSymbolsEntryR\fvalidSymbols\x1a?\n" +
 	"\x11ValidSymbolsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\xc0\x02\n" +
+	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"\x87\x03\n" +
 	"\x13ExecuteTradeRequest\x12&\n" +
 	"\x0ftrade_intent_id\x18\x01 \x01(\tR\rtradeIntentId\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x17\n" +
@@ -628,7 +644,10 @@ const file_pregao_v1_pregao_proto_rawDesc = "" +
 	"\x06symbol\x18\x05 \x01(\tR\x06symbol\x127\n" +
 	"\x04side\x18\x06 \x01(\x0e2#.pregao.v1.ExecuteTradeRequest.SideR\x04side\x12\x1a\n" +
 	"\bquantity\x18\a \x01(\tR\bquantity\x12'\n" +
-	"\x0fidempotency_key\x18\b \x01(\tR\x0eidempotencyKey\"\x19\n" +
+	"\x0fidempotency_key\x18\b \x01(\tR\x0eidempotencyKey\x12!\n" +
+	"\fportfolio_id\x18\t \x01(\tR\vportfolioId\x12\"\n" +
+	"\rlivro_hold_id\x18\n" +
+	" \x01(\tR\vlivroHoldId\"\x19\n" +
 	"\x04Side\x12\a\n" +
 	"\x03BUY\x10\x00\x12\b\n" +
 	"\x04SELL\x10\x01\"Z\n" +

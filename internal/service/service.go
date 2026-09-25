@@ -287,6 +287,8 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 		FilledQuantity:   orderResult.ExecutedQuantity,
 		AverageFillPrice: orderResult.AveragePrice,
 		IdempotencyKey:   req.IdempotencyKey,
+		PortfolioID:      req.PortfolioId,
+		LivroHoldID:      req.LivroHoldId,
 	}
 
 	if err := s.ordersRepo.CreateOrder(ctx, newOrder); err != nil {
