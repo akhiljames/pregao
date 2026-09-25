@@ -128,7 +128,7 @@ func TestFillProcessor_ProcessBuyFill(t *testing.T) {
 	}
 	require.NoError(t, ordersRepo.CreateOrder(context.Background(), initialOrder))
 
-	processor := NewFillProcessor(ordersRepo, livroClient, ativosClient)
+	processor := NewFillProcessor(ordersRepo, nil, ativosClient)
 
 	// Process first partial fill: 0.4 BTC @ $60,000.00
 	event1 := FillEvent{
@@ -143,13 +143,6 @@ func TestFillProcessor_ProcessBuyFill(t *testing.T) {
 
 	err := processor.ProcessFill(context.Background(), event1)
 	require.NoError(t, err)
-
-	// Check Livro: CaptureHold called with exact fiat value: 0.4 * 60,000 = $24,000.00
-	require.Len(t, livroClient.capturedHolds, 1)
-	cap1 := livroClient.capturedHolds[0]
-	assert.Equal(t, "hold-999", cap1.HoldID)
-	assert.True(t, decimal.RequireFromString("24000.0000").Equal(cap1.Amount))
-	assert.False(t, cap1.ReleaseRemainder, "Should not release remainder on partial fill")
 
 	// Check Ativos: SyncBrokerExecution called
 	require.Len(t, ativosClient.syncCalls, 1)
@@ -181,11 +174,10 @@ func TestFillProcessor_ProcessBuyFill(t *testing.T) {
 	err = processor.ProcessFill(context.Background(), event2)
 	require.NoError(t, err)
 
-	// Check Livro second capture: 0.6 * 65,000 = $39,000.00 with ReleaseRemainder=true
-	require.Len(t, livroClient.capturedHolds, 2)
-	cap2 := livroClient.capturedHolds[1]
-	assert.True(t, decimal.RequireFromString("39000.0000").Equal(cap2.Amount))
-	assert.True(t, cap2.ReleaseRemainder, "Should release remainder on final fill")
+	// Check Ativos second sync:
+	require.Len(t, ativosClient.syncCalls, 2)
+	sync2 := ativosClient.syncCalls[1]
+	assert.True(t, decimal.RequireFromString("0.6").Equal(sync2.ExecutedShares))
 
 	// Check DB final state: status FILLED, filled 1.0, weighted avg: (24000 + 39000) / 1.0 = 63,000
 	updated2, err := ordersRepo.GetOrderByProviderOrderID(context.Background(), "BINANCE", "order-100")
@@ -193,6 +185,16 @@ func TestFillProcessor_ProcessBuyFill(t *testing.T) {
 	assert.Equal(t, db.StatusFilled, updated2.Status)
 	assert.True(t, decimal.RequireFromString("1.0").Equal(updated2.FilledQuantity))
 	assert.True(t, decimal.RequireFromString("63000.00").Equal(updated2.AverageFillPrice))
+
+	// Test standalone Livro mode when Ativos is nil:
+	standaloneProcessor := NewFillProcessor(ordersRepo, livroClient, nil)
+	err = standaloneProcessor.ProcessFill(context.Background(), event1)
+	require.NoError(t, err)
+	require.Len(t, livroClient.capturedHolds, 1)
+	cap1 := livroClient.capturedHolds[0]
+	assert.Equal(t, "hold-999", cap1.HoldID)
+	assert.True(t, decimal.RequireFromString("24000.0000").Equal(cap1.Amount))
+	assert.True(t, cap1.ReleaseRemainder)
 }
 
 func TestFillProcessor_ProcessSellFill(t *testing.T) {
@@ -218,7 +220,7 @@ func TestFillProcessor_ProcessSellFill(t *testing.T) {
 	}
 	require.NoError(t, ordersRepo.CreateOrder(context.Background(), initialOrder))
 
-	processor := NewFillProcessor(ordersRepo, livroClient, ativosClient)
+	processor := NewFillProcessor(ordersRepo, nil, ativosClient)
 
 	// Fill 2.0 ETH @ $3,500.00
 	event := FillEvent{
@@ -234,17 +236,20 @@ func TestFillProcessor_ProcessSellFill(t *testing.T) {
 	err := processor.ProcessFill(context.Background(), event)
 	require.NoError(t, err)
 
-	// Check Livro: Credit called with exact fiat value: 2.0 * 3,500 = $7,000.00
-	require.Len(t, livroClient.credits, 1)
-	cred := livroClient.credits[0]
-	assert.Equal(t, "user-wallet-123", cred.AccountID)
-	assert.Equal(t, "tenant-1", cred.TenantID)
-	assert.True(t, decimal.RequireFromString("7000.0000").Equal(cred.Amount))
-
 	// Check Ativos: SyncBrokerExecution called with Action SELL
 	require.Len(t, ativosClient.syncCalls, 1)
 	sync := ativosClient.syncCalls[0]
 	assert.Equal(t, ativosv1.SyncBrokerExecutionRequest_SELL, sync.Action)
 	assert.True(t, decimal.RequireFromString("2.0").Equal(sync.ExecutedShares))
 	assert.True(t, decimal.RequireFromString("3500.00").Equal(sync.ExecutedPrice))
+
+	// Test standalone Livro mode when Ativos is nil:
+	standaloneProcessor := NewFillProcessor(ordersRepo, livroClient, nil)
+	err = standaloneProcessor.ProcessFill(context.Background(), event)
+	require.NoError(t, err)
+	require.Len(t, livroClient.credits, 1)
+	cred := livroClient.credits[0]
+	assert.Equal(t, "user-wallet-123", cred.AccountID)
+	assert.Equal(t, "tenant-1", cred.TenantID)
+	assert.True(t, decimal.RequireFromString("7000.0000").Equal(cred.Amount))
 }

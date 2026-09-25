@@ -77,8 +77,30 @@ func (p *fillProcessor) ProcessFill(ctx context.Context, event FillEvent) error 
 		newStatus = db.StatusFilled
 	}
 
-	// 2. Ledger Sync with Livro (port 50051)
-	if p.livroClient != nil {
+	// 2. Portfolio & Ledger Sync with Ativos PMS (port 50052)
+	// When Ativos PMS is configured, it is the authoritative coordinator for 2PC ledger settlement
+	// (capturing the Livro hold to the tenant's broker clearing account on BUY, crediting sale proceeds on SELL)
+	// and physical holdings/continuous VWAP calculation.
+	if p.ativosClient != nil {
+		action := ativosv1.SyncBrokerExecutionRequest_BUY
+		if strings.EqualFold(order.Side, db.SideSell) {
+			action = ativosv1.SyncBrokerExecutionRequest_SELL
+		}
+		syncParams := ativos.SyncExecutionParams{
+			TenantID:       order.TenantID,
+			PortfolioID:    order.PortfolioID,
+			TradeIntentID:  order.TradeIntentID.String(),
+			Ticker:         order.Symbol,
+			Action:         action,
+			ExecutedShares: event.ExecutedQuantity,
+			ExecutedPrice:  event.FillPrice,
+			IdempotencyKey: fmt.Sprintf("sync-ativos-%s-%s-%s", order.TradeIntentID, order.ProviderOrderID, newFilledQty.String()),
+		}
+		if _, err := p.ativosClient.SyncBrokerExecution(ctx, syncParams); err != nil {
+			return fmt.Errorf("ativos SyncBrokerExecution failed: %w", err)
+		}
+	} else if p.livroClient != nil {
+		// Standalone OMS fallback when Ativos PMS is not configured
 		if strings.EqualFold(order.Side, db.SideBuy) {
 			holdID := order.LivroHoldID
 			if holdID == "" {
@@ -108,27 +130,6 @@ func (p *fillProcessor) ProcessFill(ctx context.Context, event FillEvent) error 
 			if _, err := p.livroClient.Credit(ctx, creditParams); err != nil {
 				return fmt.Errorf("livro Credit failed: %w", err)
 			}
-		}
-	}
-
-	// 3. Portfolio Sync with Ativos (port 50052)
-	if p.ativosClient != nil {
-		action := ativosv1.SyncBrokerExecutionRequest_BUY
-		if strings.EqualFold(order.Side, db.SideSell) {
-			action = ativosv1.SyncBrokerExecutionRequest_SELL
-		}
-		syncParams := ativos.SyncExecutionParams{
-			TenantID:       order.TenantID,
-			PortfolioID:    order.PortfolioID,
-			TradeIntentID:  order.TradeIntentID.String(),
-			Ticker:         order.Symbol,
-			Action:         action,
-			ExecutedShares: event.ExecutedQuantity,
-			ExecutedPrice:  event.FillPrice,
-			IdempotencyKey: fmt.Sprintf("sync-ativos-%s-%s-%s", order.TradeIntentID, order.ProviderOrderID, newFilledQty.String()),
-		}
-		if _, err := p.ativosClient.SyncBrokerExecution(ctx, syncParams); err != nil {
-			return fmt.Errorf("ativos SyncBrokerExecution failed: %w", err)
 		}
 	}
 
