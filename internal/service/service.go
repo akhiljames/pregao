@@ -14,6 +14,7 @@ import (
 	"github.com/akhiljames/pregao/internal/client/livro"
 	"github.com/akhiljames/pregao/internal/db"
 	"github.com/akhiljames/pregao/internal/vault"
+	"github.com/akhiljames/pregao/internal/worker"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"google.golang.org/grpc/codes"
@@ -31,6 +32,7 @@ type PregaoServer struct {
 	credentialsRepo db.CredentialsRepository
 	ordersRepo      db.OrdersRepository
 	livroClient     livro.Client
+	fillProcessor   worker.FillProcessor
 	execLocks       sync.Map
 }
 
@@ -48,6 +50,7 @@ type ServerParams struct {
 	CredentialsRepo db.CredentialsRepository
 	OrdersRepo      db.OrdersRepository
 	LivroClient     livro.Client
+	FillProcessor   worker.FillProcessor
 }
 
 // NewPregaoServer returns an initialized PregaoServer.
@@ -63,6 +66,7 @@ func NewPregaoServer(params ServerParams) *PregaoServer {
 		credentialsRepo: params.CredentialsRepo,
 		ordersRepo:      params.OrdersRepo,
 		livroClient:     params.LivroClient,
+		fillProcessor:   params.FillProcessor,
 	}
 }
 
@@ -294,6 +298,24 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 	if err := s.ordersRepo.CreateOrder(ctx, newOrder); err != nil {
 		log.Printf("[DB_ERROR] Order executed on broker (%s) but failed to record in DB: %v", orderResult.ProviderOrderID, err)
 		// We still return the provider_order_id so the caller can reconcile
+	}
+
+	// Step 6: If order is immediately filled by broker, trigger fillProcessor for Livro hold capture and Ativos VWAP sync
+	if s.fillProcessor != nil && orderResult.ExecutedQuantity.IsPositive() {
+		fillEvent := worker.FillEvent{
+			Provider:         provider,
+			ProviderOrderID:  orderResult.ProviderOrderID,
+			Symbol:           strings.ToUpper(req.Symbol),
+			Side:             sideStr,
+			Status:           orderStatus,
+			ExecutedQuantity: orderResult.ExecutedQuantity,
+			FillPrice:        orderResult.AveragePrice,
+		}
+		if err := s.fillProcessor.ProcessFill(ctx, fillEvent); err != nil {
+			log.Printf("[FILL_SYNC_WARN] Order %s filled on broker but fill settlement failed: %v", orderResult.ProviderOrderID, err)
+		} else {
+			log.Printf("[FILL_SYNC_SUCCESS] Order %s synchronously settled (Livro hold captured, Ativos VWAP updated)", orderResult.ProviderOrderID)
+		}
 	}
 
 	return &pregaov1.ExecuteTradeResponse{

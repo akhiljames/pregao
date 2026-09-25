@@ -16,10 +16,20 @@ type ExchangeInfoResponse struct {
 
 // ExchangeInfoSymbol represents an individual symbol definition in exchangeInfo.
 type ExchangeInfoSymbol struct {
-	Symbol     string `json:"symbol"`
-	Status     string `json:"status"`
-	BaseAsset  string `json:"baseAsset"`
-	QuoteAsset string `json:"quoteAsset"`
+	Symbol     string               `json:"symbol"`
+	Status     string               `json:"status"`
+	BaseAsset  string               `json:"baseAsset"`
+	QuoteAsset string               `json:"quoteAsset"`
+	Filters    []ExchangeInfoFilter `json:"filters"`
+}
+
+// ExchangeInfoFilter models LOT_SIZE and NOTIONAL filters from Binance.
+type ExchangeInfoFilter struct {
+	FilterType  string `json:"filterType"`
+	MinQty      string `json:"minQty,omitempty"`
+	MaxQty      string `json:"maxQty,omitempty"`
+	StepSize    string `json:"stepSize,omitempty"`
+	MinNotional string `json:"minNotional,omitempty"`
 }
 
 // OrderResponse represents the response from Binance POST /api/v3/order.

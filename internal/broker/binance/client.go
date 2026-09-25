@@ -217,11 +217,17 @@ func (c *binanceClient) PlaceMarketOrder(ctx context.Context, creds *vault.Plain
 		return nil, broker.ErrInvalidQuantity
 	}
 
+	stepSize := GetDefaultStepSize(orderReq.Symbol)
+	quantizedQty, qtyStr := TruncateToStepSize(orderReq.Quantity, stepSize)
+	if quantizedQty.LessThanOrEqual(decimal.Zero) {
+		return nil, fmt.Errorf("%w: quantity %s is smaller than minimum step size %s for %s", broker.ErrInvalidQuantity, orderReq.Quantity, stepSize, orderReq.Symbol)
+	}
+
 	params := url.Values{}
 	params.Set("symbol", strings.ToUpper(orderReq.Symbol))
 	params.Set("side", strings.ToUpper(orderReq.Side))
 	params.Set("type", "MARKET")
-	params.Set("quantity", orderReq.Quantity.String())
+	params.Set("quantity", qtyStr)
 	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
 	params.Set("recvWindow", strconv.FormatInt(c.recvWindow, 10))
 	if orderReq.ClientOrderID != "" {
@@ -354,3 +360,47 @@ func mapOrderStatus(binanceStatus string) string {
 		return db.StatusSubmitted
 	}
 }
+
+// TruncateToStepSize quantizes a decimal quantity down to the nearest multiple of stepSize.
+// E.g., qty = 0.00012345, stepSize = 0.00001 -> returns 0.00012 and formatted string "0.00012".
+func TruncateToStepSize(qty decimal.Decimal, stepSize decimal.Decimal) (decimal.Decimal, string) {
+	if stepSize.LessThanOrEqual(decimal.Zero) {
+		return qty, qty.String()
+	}
+	steps := qty.Div(stepSize).Floor()
+	quantized := steps.Mul(stepSize)
+
+	// Determine decimal places from stepSize string (e.g. "0.00001000" -> 5 decimals)
+	stepStr := stepSize.String()
+	decimals := 0
+	if idx := strings.Index(stepStr, "."); idx != -1 {
+		trimmed := strings.TrimRight(stepStr[idx+1:], "0")
+		decimals = len(trimmed)
+		if decimals == 0 {
+			decimals = len(stepStr[idx+1:])
+		}
+	}
+	return quantized, quantized.StringFixed(int32(decimals))
+}
+
+// GetDefaultStepSize returns standard Binance spot step sizes for common trading pairs.
+func GetDefaultStepSize(symbol string) decimal.Decimal {
+	switch strings.ToUpper(strings.TrimSpace(symbol)) {
+	case "BTCUSDT":
+		return decimal.RequireFromString("0.00001000") // 5 decimals
+	case "ETHUSDT":
+		return decimal.RequireFromString("0.00010000") // 4 decimals
+	case "SOLUSDT":
+		return decimal.RequireFromString("0.01000000") // 2 decimals
+	case "BNBUSDT":
+		return decimal.RequireFromString("0.00100000") // 3 decimals
+	case "DOGEUSDT":
+		return decimal.RequireFromString("1.00000000") // 0 decimals
+	case "ADAUSDT", "XRPUSDT":
+		return decimal.RequireFromString("0.10000000") // 1 decimal
+	default:
+		// Safe fallback for unknown crypto pairs: 4 decimal places
+		return decimal.RequireFromString("0.00010000")
+	}
+}
+

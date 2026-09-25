@@ -125,6 +125,7 @@ func main() {
 		CredentialsRepo: credRepo,
 		OrdersRepo:      ordRepo,
 		LivroClient:     livroClient,
+		FillProcessor:   fillProcessor,
 	})
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", cfg.GRPCPort))
