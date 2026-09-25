@@ -1,0 +1,89 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: pregao-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: pregao
+    ports:
+      - "5434:5432"
+    volumes:
+      - pregao_pgdata:/var/lib/postgresql/data
+      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pregao"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pregao-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - pregao_redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  openbao:
+    image: hashicorp/vault:1.15
+    container_name: pregao-openbao
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: "root"
+      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
+    cap_add:
+      - IPC_LOCK
+
+  vault-init:
+    image: hashicorp/vault:1.15
+    container_name: pregao-vault-init
+    depends_on:
+      - openbao
+    volumes:
+      - ./scripts/init-vault.sh:/init-vault.sh:ro
+    entrypoint: ["/bin/sh", "/init-vault.sh"]
+
+  pregao:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pregao-service
+    restart: unless-stopped
+    ports:
+      - "50053:50053"
+      - "8080:8080"
+    environment:
+      PORT: "50053"
+      HTTP_PORT: "8080"
+      DATABASE_URL: "postgres://postgres:postgrespassword@postgres:5432/pregao?sslmode=disable"
+      REDIS_ADDR: "redis:6379"
+      OPENBAO_ADDR: "http://openbao:8200"
+      OPENBAO_TOKEN: "root"
+      OPENBAO_TRANSIT_KEY: "broker-keys"
+      BINANCE_BASE_URL: "https://api.binance.com"
+      LIVRO_GRPC_ADDR: "host.docker.internal:50051"
+      ATIVOS_GRPC_ADDR: "host.docker.internal:50052"
+      DEFAULT_PROVIDER: "BINANCE"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+
+volumes:
+  pregao_pgdata:
+  pregao_redisdata:
