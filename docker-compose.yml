@@ -75,7 +75,7 @@ services:
       BINANCE_BASE_URL: "https://api.binance.com"
       LIVRO_GRPC_ADDR: "host.docker.internal:50051"
       ATIVOS_GRPC_ADDR: "host.docker.internal:50052"
-      DEFAULT_PROVIDER: "BINANCE"
+      DEFAULT_BROKER: "BINANCE"
     depends_on:
       postgres:
         condition: service_healthy

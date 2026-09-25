@@ -21,6 +21,52 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type Broker int32
+
+const (
+	Broker_BROKER_UNSPECIFIED Broker = 0
+	Broker_BROKER_BINANCE     Broker = 1
+)
+
+// Enum value maps for Broker.
+var (
+	Broker_name = map[int32]string{
+		0: "BROKER_UNSPECIFIED",
+		1: "BROKER_BINANCE",
+	}
+	Broker_value = map[string]int32{
+		"BROKER_UNSPECIFIED": 0,
+		"BROKER_BINANCE":     1,
+	}
+)
+
+func (x Broker) Enum() *Broker {
+	p := new(Broker)
+	*p = x
+	return p
+}
+
+func (x Broker) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (Broker) Descriptor() protoreflect.EnumDescriptor {
+	return file_ativos_v1_pms_proto_enumTypes[0].Descriptor()
+}
+
+func (Broker) Type() protoreflect.EnumType {
+	return &file_ativos_v1_pms_proto_enumTypes[0]
+}
+
+func (x Broker) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use Broker.Descriptor instead.
+func (Broker) EnumDescriptor() ([]byte, []int) {
+	return file_ativos_v1_pms_proto_rawDescGZIP(), []int{0}
+}
+
 type SyncBrokerExecutionRequest_Action int32
 
 const (
@@ -51,11 +97,11 @@ func (x SyncBrokerExecutionRequest_Action) String() string {
 }
 
 func (SyncBrokerExecutionRequest_Action) Descriptor() protoreflect.EnumDescriptor {
-	return file_ativos_v1_pms_proto_enumTypes[0].Descriptor()
+	return file_ativos_v1_pms_proto_enumTypes[1].Descriptor()
 }
 
 func (SyncBrokerExecutionRequest_Action) Type() protoreflect.EnumType {
-	return &file_ativos_v1_pms_proto_enumTypes[0]
+	return &file_ativos_v1_pms_proto_enumTypes[1]
 }
 
 func (x SyncBrokerExecutionRequest_Action) Number() protoreflect.EnumNumber {
@@ -74,6 +120,7 @@ type CreatePortfolioRequest struct {
 	Name                  string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
 	RebalanceThresholdBps uint32                 `protobuf:"varint,4,opt,name=rebalance_threshold_bps,json=rebalanceThresholdBps,proto3" json:"rebalance_threshold_bps,omitempty"`
 	IdempotencyKey        string                 `protobuf:"bytes,5,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	Broker                Broker                 `protobuf:"varint,6,opt,name=broker,proto3,enum=ativos.v1.Broker" json:"broker,omitempty"` // Defaults to BROKER_BINANCE if unspecified
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -143,6 +190,13 @@ func (x *CreatePortfolioRequest) GetIdempotencyKey() string {
 	return ""
 }
 
+func (x *CreatePortfolioRequest) GetBroker() Broker {
+	if x != nil {
+		return x.Broker
+	}
+	return Broker_BROKER_UNSPECIFIED
+}
+
 type PortfolioResponse struct {
 	state                 protoimpl.MessageState `protogen:"open.v1"`
 	Id                    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -155,6 +209,7 @@ type PortfolioResponse struct {
 	LivroAccountId        string                 `protobuf:"bytes,8,opt,name=livro_account_id,json=livroAccountId,proto3" json:"livro_account_id,omitempty"`
 	CreatedAt             string                 `protobuf:"bytes,9,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt             string                 `protobuf:"bytes,10,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Broker                Broker                 `protobuf:"varint,11,opt,name=broker,proto3,enum=ativos.v1.Broker" json:"broker,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -257,6 +312,13 @@ func (x *PortfolioResponse) GetUpdatedAt() string {
 		return x.UpdatedAt
 	}
 	return ""
+}
+
+func (x *PortfolioResponse) GetBroker() Broker {
+	if x != nil {
+		return x.Broker
+	}
+	return Broker_BROKER_UNSPECIFIED
 }
 
 type GetPortfolioRequest struct {
@@ -990,6 +1052,7 @@ type TradeIntent struct {
 	ExecutedAmount string                 `protobuf:"bytes,11,opt,name=executed_amount,json=executedAmount,proto3" json:"executed_amount,omitempty"`
 	CreatedAt      string                 `protobuf:"bytes,12,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	UpdatedAt      string                 `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
+	Broker         Broker                 `protobuf:"varint,14,opt,name=broker,proto3,enum=ativos.v1.Broker" json:"broker,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1115,17 +1178,25 @@ func (x *TradeIntent) GetUpdatedAt() string {
 	return ""
 }
 
+func (x *TradeIntent) GetBroker() Broker {
+	if x != nil {
+		return x.Broker
+	}
+	return Broker_BROKER_UNSPECIFIED
+}
+
 var File_ativos_v1_pms_proto protoreflect.FileDescriptor
 
 const file_ativos_v1_pms_proto_rawDesc = "" +
 	"\n" +
-	"\x13ativos/v1/pms.proto\x12\tativos.v1\"\xc3\x01\n" +
+	"\x13ativos/v1/pms.proto\x12\tativos.v1\"\xee\x01\n" +
 	"\x16CreatePortfolioRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12\x17\n" +
 	"\auser_id\x18\x02 \x01(\tR\x06userId\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x126\n" +
 	"\x17rebalance_threshold_bps\x18\x04 \x01(\rR\x15rebalanceThresholdBps\x12'\n" +
-	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\"\xca\x02\n" +
+	"\x0fidempotency_key\x18\x05 \x01(\tR\x0eidempotencyKey\x12)\n" +
+	"\x06broker\x18\x06 \x01(\x0e2\x11.ativos.v1.BrokerR\x06broker\"\xf5\x02\n" +
 	"\x11PortfolioResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1b\n" +
 	"\ttenant_id\x18\x02 \x01(\tR\btenantId\x12\x17\n" +
@@ -1139,7 +1210,8 @@ const file_ativos_v1_pms_proto_rawDesc = "" +
 	"created_at\x18\t \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\n" +
-	" \x01(\tR\tupdatedAt\"U\n" +
+	" \x01(\tR\tupdatedAt\x12)\n" +
+	"\x06broker\x18\v \x01(\x0e2\x11.ativos.v1.BrokerR\x06broker\"U\n" +
 	"\x13GetPortfolioRequest\x12\x1b\n" +
 	"\ttenant_id\x18\x01 \x01(\tR\btenantId\x12!\n" +
 	"\fportfolio_id\x18\x02 \x01(\tR\vportfolioId\"\xb7\x01\n" +
@@ -1198,7 +1270,7 @@ const file_ativos_v1_pms_proto_rawDesc = "" +
 	"\x0fidempotency_key\x18\x03 \x01(\tR\x0eidempotencyKey\"o\n" +
 	"\x18RebalanceIntentsResponse\x12!\n" +
 	"\fportfolio_id\x18\x01 \x01(\tR\vportfolioId\x120\n" +
-	"\aintents\x18\x02 \x03(\v2\x16.ativos.v1.TradeIntentR\aintents\"\xb3\x03\n" +
+	"\aintents\x18\x02 \x03(\v2\x16.ativos.v1.TradeIntentR\aintents\"\xde\x03\n" +
 	"\vTradeIntent\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fportfolio_id\x18\x02 \x01(\tR\vportfolioId\x12'\n" +
@@ -1215,7 +1287,11 @@ const file_ativos_v1_pms_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\f \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\r \x01(\tR\tupdatedAt2\xbe\x04\n" +
+	"updated_at\x18\r \x01(\tR\tupdatedAt\x12)\n" +
+	"\x06broker\x18\x0e \x01(\x0e2\x11.ativos.v1.BrokerR\x06broker*4\n" +
+	"\x06Broker\x12\x16\n" +
+	"\x12BROKER_UNSPECIFIED\x10\x00\x12\x12\n" +
+	"\x0eBROKER_BINANCE\x10\x012\xbe\x04\n" +
 	"\x10PortfolioService\x12R\n" +
 	"\x0fCreatePortfolio\x12!.ativos.v1.CreatePortfolioRequest\x1a\x1c.ativos.v1.PortfolioResponse\x12L\n" +
 	"\fGetPortfolio\x12\x1e.ativos.v1.GetPortfolioRequest\x1a\x1c.ativos.v1.PortfolioResponse\x12a\n" +
@@ -1236,48 +1312,52 @@ func file_ativos_v1_pms_proto_rawDescGZIP() []byte {
 	return file_ativos_v1_pms_proto_rawDescData
 }
 
-var file_ativos_v1_pms_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_ativos_v1_pms_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
 var file_ativos_v1_pms_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_ativos_v1_pms_proto_goTypes = []any{
-	(SyncBrokerExecutionRequest_Action)(0),  // 0: ativos.v1.SyncBrokerExecutionRequest.Action
-	(*CreatePortfolioRequest)(nil),          // 1: ativos.v1.CreatePortfolioRequest
-	(*PortfolioResponse)(nil),               // 2: ativos.v1.PortfolioResponse
-	(*GetPortfolioRequest)(nil),             // 3: ativos.v1.GetPortfolioRequest
-	(*SetTargetAllocationRequest)(nil),      // 4: ativos.v1.SetTargetAllocationRequest
-	(*AssetWeight)(nil),                     // 5: ativos.v1.AssetWeight
-	(*TargetAllocationResponse)(nil),        // 6: ativos.v1.TargetAllocationResponse
-	(*SyncBrokerExecutionRequest)(nil),      // 7: ativos.v1.SyncBrokerExecutionRequest
-	(*SyncBrokerExecutionResponse)(nil),     // 8: ativos.v1.SyncBrokerExecutionResponse
-	(*CalculateDriftRequest)(nil),           // 9: ativos.v1.CalculateDriftRequest
-	(*DriftReportResponse)(nil),             // 10: ativos.v1.DriftReportResponse
-	(*AssetDrift)(nil),                      // 11: ativos.v1.AssetDrift
-	(*GenerateRebalanceIntentsRequest)(nil), // 12: ativos.v1.GenerateRebalanceIntentsRequest
-	(*RebalanceIntentsResponse)(nil),        // 13: ativos.v1.RebalanceIntentsResponse
-	(*TradeIntent)(nil),                     // 14: ativos.v1.TradeIntent
+	(Broker)(0),                             // 0: ativos.v1.Broker
+	(SyncBrokerExecutionRequest_Action)(0),  // 1: ativos.v1.SyncBrokerExecutionRequest.Action
+	(*CreatePortfolioRequest)(nil),          // 2: ativos.v1.CreatePortfolioRequest
+	(*PortfolioResponse)(nil),               // 3: ativos.v1.PortfolioResponse
+	(*GetPortfolioRequest)(nil),             // 4: ativos.v1.GetPortfolioRequest
+	(*SetTargetAllocationRequest)(nil),      // 5: ativos.v1.SetTargetAllocationRequest
+	(*AssetWeight)(nil),                     // 6: ativos.v1.AssetWeight
+	(*TargetAllocationResponse)(nil),        // 7: ativos.v1.TargetAllocationResponse
+	(*SyncBrokerExecutionRequest)(nil),      // 8: ativos.v1.SyncBrokerExecutionRequest
+	(*SyncBrokerExecutionResponse)(nil),     // 9: ativos.v1.SyncBrokerExecutionResponse
+	(*CalculateDriftRequest)(nil),           // 10: ativos.v1.CalculateDriftRequest
+	(*DriftReportResponse)(nil),             // 11: ativos.v1.DriftReportResponse
+	(*AssetDrift)(nil),                      // 12: ativos.v1.AssetDrift
+	(*GenerateRebalanceIntentsRequest)(nil), // 13: ativos.v1.GenerateRebalanceIntentsRequest
+	(*RebalanceIntentsResponse)(nil),        // 14: ativos.v1.RebalanceIntentsResponse
+	(*TradeIntent)(nil),                     // 15: ativos.v1.TradeIntent
 }
 var file_ativos_v1_pms_proto_depIdxs = []int32{
-	5,  // 0: ativos.v1.SetTargetAllocationRequest.targets:type_name -> ativos.v1.AssetWeight
-	5,  // 1: ativos.v1.TargetAllocationResponse.targets:type_name -> ativos.v1.AssetWeight
-	0,  // 2: ativos.v1.SyncBrokerExecutionRequest.action:type_name -> ativos.v1.SyncBrokerExecutionRequest.Action
-	11, // 3: ativos.v1.DriftReportResponse.drifts:type_name -> ativos.v1.AssetDrift
-	14, // 4: ativos.v1.RebalanceIntentsResponse.intents:type_name -> ativos.v1.TradeIntent
-	1,  // 5: ativos.v1.PortfolioService.CreatePortfolio:input_type -> ativos.v1.CreatePortfolioRequest
-	3,  // 6: ativos.v1.PortfolioService.GetPortfolio:input_type -> ativos.v1.GetPortfolioRequest
-	4,  // 7: ativos.v1.PortfolioService.SetTargetAllocation:input_type -> ativos.v1.SetTargetAllocationRequest
-	7,  // 8: ativos.v1.PortfolioService.SyncBrokerExecution:input_type -> ativos.v1.SyncBrokerExecutionRequest
-	9,  // 9: ativos.v1.PortfolioService.CalculateDrift:input_type -> ativos.v1.CalculateDriftRequest
-	12, // 10: ativos.v1.PortfolioService.GenerateRebalanceIntents:input_type -> ativos.v1.GenerateRebalanceIntentsRequest
-	2,  // 11: ativos.v1.PortfolioService.CreatePortfolio:output_type -> ativos.v1.PortfolioResponse
-	2,  // 12: ativos.v1.PortfolioService.GetPortfolio:output_type -> ativos.v1.PortfolioResponse
-	6,  // 13: ativos.v1.PortfolioService.SetTargetAllocation:output_type -> ativos.v1.TargetAllocationResponse
-	8,  // 14: ativos.v1.PortfolioService.SyncBrokerExecution:output_type -> ativos.v1.SyncBrokerExecutionResponse
-	10, // 15: ativos.v1.PortfolioService.CalculateDrift:output_type -> ativos.v1.DriftReportResponse
-	13, // 16: ativos.v1.PortfolioService.GenerateRebalanceIntents:output_type -> ativos.v1.RebalanceIntentsResponse
-	11, // [11:17] is the sub-list for method output_type
-	5,  // [5:11] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	0,  // 0: ativos.v1.CreatePortfolioRequest.broker:type_name -> ativos.v1.Broker
+	0,  // 1: ativos.v1.PortfolioResponse.broker:type_name -> ativos.v1.Broker
+	6,  // 2: ativos.v1.SetTargetAllocationRequest.targets:type_name -> ativos.v1.AssetWeight
+	6,  // 3: ativos.v1.TargetAllocationResponse.targets:type_name -> ativos.v1.AssetWeight
+	1,  // 4: ativos.v1.SyncBrokerExecutionRequest.action:type_name -> ativos.v1.SyncBrokerExecutionRequest.Action
+	12, // 5: ativos.v1.DriftReportResponse.drifts:type_name -> ativos.v1.AssetDrift
+	15, // 6: ativos.v1.RebalanceIntentsResponse.intents:type_name -> ativos.v1.TradeIntent
+	0,  // 7: ativos.v1.TradeIntent.broker:type_name -> ativos.v1.Broker
+	2,  // 8: ativos.v1.PortfolioService.CreatePortfolio:input_type -> ativos.v1.CreatePortfolioRequest
+	4,  // 9: ativos.v1.PortfolioService.GetPortfolio:input_type -> ativos.v1.GetPortfolioRequest
+	5,  // 10: ativos.v1.PortfolioService.SetTargetAllocation:input_type -> ativos.v1.SetTargetAllocationRequest
+	8,  // 11: ativos.v1.PortfolioService.SyncBrokerExecution:input_type -> ativos.v1.SyncBrokerExecutionRequest
+	10, // 12: ativos.v1.PortfolioService.CalculateDrift:input_type -> ativos.v1.CalculateDriftRequest
+	13, // 13: ativos.v1.PortfolioService.GenerateRebalanceIntents:input_type -> ativos.v1.GenerateRebalanceIntentsRequest
+	3,  // 14: ativos.v1.PortfolioService.CreatePortfolio:output_type -> ativos.v1.PortfolioResponse
+	3,  // 15: ativos.v1.PortfolioService.GetPortfolio:output_type -> ativos.v1.PortfolioResponse
+	7,  // 16: ativos.v1.PortfolioService.SetTargetAllocation:output_type -> ativos.v1.TargetAllocationResponse
+	9,  // 17: ativos.v1.PortfolioService.SyncBrokerExecution:output_type -> ativos.v1.SyncBrokerExecutionResponse
+	11, // 18: ativos.v1.PortfolioService.CalculateDrift:output_type -> ativos.v1.DriftReportResponse
+	14, // 19: ativos.v1.PortfolioService.GenerateRebalanceIntents:output_type -> ativos.v1.RebalanceIntentsResponse
+	14, // [14:20] is the sub-list for method output_type
+	8,  // [8:14] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_ativos_v1_pms_proto_init() }
@@ -1290,7 +1370,7 @@ func file_ativos_v1_pms_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ativos_v1_pms_proto_rawDesc), len(file_ativos_v1_pms_proto_rawDesc)),
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,

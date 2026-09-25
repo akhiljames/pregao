@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	ativosv1 "github.com/akhiljames/proto/gen/go/ativos/v1"
 	pregaov1 "github.com/akhiljames/proto/gen/go/pregao/v1"
 	"github.com/akhiljames/pregao/internal/broker"
 	"github.com/akhiljames/pregao/internal/cache"
@@ -25,7 +26,7 @@ import (
 type PregaoServer struct {
 	pregaov1.UnimplementedPregaoServiceServer
 
-	defaultProvider string
+	defaultBroker   ativosv1.Broker
 	cache           cache.QuotesCache
 	brokerClient    broker.Broker
 	vaultClient     vault.TransitClient
@@ -43,7 +44,9 @@ func (s *PregaoServer) getExecLock(key string) *sync.Mutex {
 
 // ServerParams encapsulates dependencies required to instantiate PregaoServer.
 type ServerParams struct {
-	DefaultProvider string
+	// DefaultBroker is the broker used when no explicit provider is specified on
+	// a request. Defaults to ativosv1.Broker_BROKER_BINANCE if unset.
+	DefaultBroker   ativosv1.Broker
 	Cache           cache.QuotesCache
 	BrokerClient    broker.Broker
 	VaultClient     vault.TransitClient
@@ -55,11 +58,11 @@ type ServerParams struct {
 
 // NewPregaoServer returns an initialized PregaoServer.
 func NewPregaoServer(params ServerParams) *PregaoServer {
-	if params.DefaultProvider == "" {
-		params.DefaultProvider = "BINANCE"
+	if params.DefaultBroker == ativosv1.Broker_BROKER_UNSPECIFIED {
+		params.DefaultBroker = broker.DefaultBroker
 	}
 	return &PregaoServer{
-		defaultProvider: params.DefaultProvider,
+		defaultBroker:   params.DefaultBroker,
 		cache:           params.Cache,
 		brokerClient:    params.BrokerClient,
 		vaultClient:     params.VaultClient,
@@ -70,6 +73,7 @@ func NewPregaoServer(params ServerParams) *PregaoServer {
 	}
 }
 
+
 // -----------------------------------------------------------------------------
 // Workflow A: Market Data (GetQuotes & ValidateTickers)
 // -----------------------------------------------------------------------------
@@ -79,11 +83,12 @@ func (s *PregaoServer) GetQuotes(ctx context.Context, req *pregaov1.GetQuotesReq
 		return &pregaov1.GetQuotesResponse{Quotes: make(map[string]*pregaov1.Quote)}, nil
 	}
 
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		provider = s.defaultProvider
+	// Resolve broker enum from the wire string; fall back to service default.
+	b := broker.ParseBroker(strings.ToUpper(strings.TrimSpace(req.Provider)))
+	if b == ativosv1.Broker_BROKER_UNSPECIFIED {
+		b = s.defaultBroker
 	}
-	provider = strings.ToUpper(provider)
+	provider := broker.ProviderName(b)
 
 	// Clean and deduplicate symbols
 	symbolSet := make(map[string]struct{}, len(req.Symbols))
@@ -202,11 +207,13 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 		return nil, status.Errorf(codes.InvalidArgument, "invalid quantity %q: must be a positive decimal", req.Quantity)
 	}
 
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		provider = s.defaultProvider
+	// Resolve broker enum from the wire string; fall back to service default.
+	b := broker.ParseBroker(strings.ToUpper(strings.TrimSpace(req.Provider)))
+	if b == ativosv1.Broker_BROKER_UNSPECIFIED {
+		b = s.defaultBroker
 	}
-	provider = strings.ToUpper(provider)
+	provider := broker.ProviderName(b)
+
 
 	// Serialize concurrent execution requests for the same trade intent or idempotency key
 	lockKey := req.TenantId + ":" + req.TradeIntentId
@@ -336,11 +343,12 @@ func (s *PregaoServer) SyncBrokerBalances(ctx context.Context, req *pregaov1.Syn
 		return nil, status.Error(codes.InvalidArgument, "user_id is required")
 	}
 
-	provider := strings.TrimSpace(req.Provider)
-	if provider == "" {
-		provider = s.defaultProvider
+	// Resolve broker enum from the wire string; fall back to service default.
+	b := broker.ParseBroker(strings.ToUpper(strings.TrimSpace(req.Provider)))
+	if b == ativosv1.Broker_BROKER_UNSPECIFIED {
+		b = s.defaultBroker
 	}
-	provider = strings.ToUpper(provider)
+	provider := broker.ProviderName(b)
 
 	// Fetch encrypted credentials
 	cred, err := s.credentialsRepo.GetCredentials(ctx, req.TenantId, req.UserId, provider)

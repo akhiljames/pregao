@@ -4,6 +4,9 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	ativosv1 "github.com/akhiljames/proto/gen/go/ativos/v1"
+	"github.com/akhiljames/pregao/internal/broker"
 )
 
 // Config holds the service configuration loaded from the environment.
@@ -20,7 +23,7 @@ type Config struct {
 	BinanceBaseURL     string
 	LivroGRPCAddr      string
 	AtivosGRPCAddr     string
-	DefaultProvider    string
+	DefaultBroker      ativosv1.Broker
 	CacheFreshTTL      time.Duration
 	CacheStaleTTL      time.Duration
 	BinanceRecvWindow  int64
@@ -42,7 +45,7 @@ func Load() *Config {
 		BinanceBaseURL:     strings.TrimRight(getEnv("BINANCE_BASE_URL", "https://api.binance.com"), "/"),
 		LivroGRPCAddr:      getEnv("LIVRO_GRPC_ADDR", "localhost:50051"),
 		AtivosGRPCAddr:     getEnv("ATIVOS_GRPC_ADDR", "localhost:50052"),
-		DefaultProvider:    getEnv("DEFAULT_PROVIDER", "BINANCE"),
+		DefaultBroker:      broker.ParseBroker(strings.ToUpper(getEnv("DEFAULT_BROKER", "BINANCE"))),
 		CacheFreshTTL:      5 * time.Second,
 		CacheStaleTTL:      24 * time.Hour,
 		BinanceRecvWindow:  5000,

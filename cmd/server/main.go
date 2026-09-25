@@ -118,7 +118,7 @@ func main() {
 
 	// 7. Core gRPC Server
 	pregaoServer := service.NewPregaoServer(service.ServerParams{
-		DefaultProvider: cfg.DefaultProvider,
+		DefaultBroker:   cfg.DefaultBroker,
 		Cache:           quotesCache,
 		BrokerClient:    brokerClient,
 		VaultClient:     vaultClient,

@@ -478,7 +478,7 @@ func setupTestHarness(addr, livroAddr, ativosAddr string) (*TestHarness, func())
 	}
 
 	srv := service.NewPregaoServer(service.ServerParams{
-		DefaultProvider: "BINANCE",
+		DefaultBroker:   ativosv1.Broker_BROKER_BINANCE,
 		Cache:           quotesCache,
 		BrokerClient:    mockBroker,
 		VaultClient:     vaultClient,
