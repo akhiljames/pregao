@@ -28,3 +28,7 @@ docker-down:
 
 clean:
 	rm -rf bin/
+
+vendor:
+	go mod tidy
+	go mod vendor

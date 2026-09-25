@@ -3,15 +3,11 @@ FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
-# Download dependencies first for optimal layer caching
-COPY go.mod go.sum ./
-RUN go mod download
-
-# Copy source code
+# Copy source code and vendored dependencies
 COPY . .
 
-# Build statically linked binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/pregao-server cmd/server/main.go
+# Build statically linked binary using vendored dependencies (offline build)
+RUN CGO_ENABLED=0 GOOS=linux go build -mod=vendor -ldflags="-w -s" -o /app/bin/pregao-server cmd/server/main.go
 
 # Runtime stage
 FROM alpine:3.20
