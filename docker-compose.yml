@@ -24,8 +24,8 @@ services:
       OPENBAO_TOKEN: "root"
       OPENBAO_TRANSIT_KEY: "broker-keys"
       BINANCE_BASE_URL: "https://api.binance.com"
-      LIVRO_GRPC_ADDR: "host.docker.internal:50051"
-      ATIVOS_GRPC_ADDR: "host.docker.internal:50052"
+      LIVRO_GRPC_ADDR: "livro:50051"
+      ATIVOS_GRPC_ADDR: "ativos:50052"
       DEFAULT_BROKER: "BINANCE"
     extra_hosts:
       - "host.docker.internal:host-gateway"
