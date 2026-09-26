@@ -1,41 +1,11 @@
 version: "3.8"
 
+networks:
+  default:
+    name: platform-network
+    external: true
+
 services:
-  redis:
-    image: redis:7-alpine
-    container_name: pregao-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - pregao_redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  openbao:
-    image: hashicorp/vault:1.15
-    container_name: pregao-openbao
-    restart: unless-stopped
-    ports:
-      - "8200:8200"
-    environment:
-      VAULT_DEV_ROOT_TOKEN_ID: "root"
-      VAULT_DEV_LISTEN_ADDRESS: "0.0.0.0:8200"
-    cap_add:
-      - IPC_LOCK
-
-  vault-init:
-    image: hashicorp/vault:1.15
-    container_name: pregao-vault-init
-    depends_on:
-      - openbao
-    volumes:
-      - ./scripts/init-vault.sh:/init-vault.sh:ro
-    entrypoint: ["/bin/sh", "/init-vault.sh"]
-
   pregao:
     build:
       context: .
@@ -48,7 +18,7 @@ services:
     environment:
       PORT: "50053"
       HTTP_PORT: "8080"
-      DATABASE_URL: "postgres://pregao_user:pregao_pass@host.docker.internal:5432/bolsa?sslmode=disable&search_path=pregao"
+      DATABASE_URL: "postgres://pregao_user:pregao_pass@bolsa:5432/bolsa?sslmode=disable&search_path=pregao"
       REDIS_ADDR: "redis:6379"
       OPENBAO_ADDR: "http://openbao:8200"
       OPENBAO_TOKEN: "root"
@@ -57,11 +27,5 @@ services:
       LIVRO_GRPC_ADDR: "host.docker.internal:50051"
       ATIVOS_GRPC_ADDR: "host.docker.internal:50052"
       DEFAULT_BROKER: "BINANCE"
-    depends_on:
-      redis:
-        condition: service_healthy
-      vault-init:
-        condition: service_completed_successfully
-
-volumes:
-  pregao_redisdata:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
