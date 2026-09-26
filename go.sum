@@ -1,9 +1,5 @@
-github.com/akhiljames/proto v0.0.0-20260925084803-914f3e817034 h1:HzP6+rSF3xPmp/uMejOyHAyzUMzIP/Lui9X6CmwhXpY=
-github.com/akhiljames/proto v0.0.0-20260925084803-914f3e817034/go.mod h1:FYpfWYgx+0WCcPtgH0qr9H3LwIG6CYpK7QE99EqDmfk=
-github.com/akhiljames/proto v0.0.0-20260925100400-3b199cd26824 h1:oBz8XRoGxFnzXu7GyuCXAQz/dfMkxO0QPUD14HUuuk4=
-github.com/akhiljames/proto v0.0.0-20260925100400-3b199cd26824/go.mod h1:FYpfWYgx+0WCcPtgH0qr9H3LwIG6CYpK7QE99EqDmfk=
-github.com/akhiljames/proto v0.0.0-20260925132130-b50bae7e8e59 h1:Hzdlnr8goGQ2XZifDTnSOWb5YpLz1Qd8BLu33+/s45s=
-github.com/akhiljames/proto v0.0.0-20260925132130-b50bae7e8e59/go.mod h1:FYpfWYgx+0WCcPtgH0qr9H3LwIG6CYpK7QE99EqDmfk=
+github.com/akhiljames/proto v0.0.0-20260926025431-5bd2937fdcea h1:x/WIx2CDsCPFDFYehiIBTUtpkgliXYoj+r/4MWP4vac=
+github.com/akhiljames/proto v0.0.0-20260926025431-5bd2937fdcea/go.mod h1:FYpfWYgx+0WCcPtgH0qr9H3LwIG6CYpK7QE99EqDmfk=
 github.com/bsm/ginkgo/v2 v2.12.0 h1:Ny8MWAHyOepLGlLKYmXG4IEkioBysk6GpaRTLC8zwWs=
 github.com/bsm/ginkgo/v2 v2.12.0/go.mod h1:SwYbGRRDovPVboqFv0tPTcG1sN61LM1Z4ARdbAV9g4c=
 github.com/bsm/gomega v1.27.10 h1:yeMWxP2pV2fG3FgAODIY8EiRE3dy0aeFYt4l7wh6yKA=

@@ -850,25 +850,7 @@ func runSuite5WebhookAndSettlement(ctx context.Context, h *TestHarness) {
 
 	assertCondition("5.1 Webhook HTTP status is 200 OK", rec.Code == http.StatusOK, rec.Body.String())
 
-	// Verify Livro CaptureHold: 1.0 * 64,000 = $64,000.00
-	if memLivro, ok := h.LivroClient.(*memoryLivroClient); ok {
-		memLivro.mu.Lock()
-		numHolds := len(memLivro.capturedHolds)
-		var lastHold livro.CaptureHoldParams
-		if numHolds > 0 {
-			lastHold = memLivro.capturedHolds[numHolds-1]
-		}
-		memLivro.mu.Unlock()
-
-		assertCondition("5.1 Livro CaptureHold was invoked", numHolds > 0, "no holds captured")
-		assertEqual("5.1 Livro hold ID matches", "hold-livro-777", lastHold.HoldID)
-		assertEqual("5.1 Livro captured amount is $64000.00", "64000.0000", lastHold.Amount.StringFixed(4))
-		assertCondition("5.1 Release remainder is true for final fill", lastHold.ReleaseRemainder, "expected true")
-	} else if h.IsLiveLivro {
-		recordPass("5.1 Live Livro connected and processed execution settlement")
-	}
-
-	// Verify Ativos SyncBrokerExecution
+	// Verify Ativos SyncBrokerExecution (Authoritative 2PC Settlement Coordinator)
 	if memAtivos, ok := h.AtivosClient.(*memoryAtivosClient); ok {
 		memAtivos.mu.Lock()
 		numSyncs := len(memAtivos.syncCalls)
@@ -884,6 +866,59 @@ func runSuite5WebhookAndSettlement(ctx context.Context, h *TestHarness) {
 		assertEqual("5.1 Executed price is 64000.00", "64000.00", lastSync.ExecutedPrice.String())
 	} else if h.IsLiveAtivos {
 		recordPass("5.1 Live Ativos connected and synced portfolio execution")
+	}
+
+	// In coordinated mode (Ativos connected), direct Livro capture is bypassed to prevent double-capture collision
+	if memLivro, ok := h.LivroClient.(*memoryLivroClient); ok {
+		memLivro.mu.Lock()
+		numHolds := len(memLivro.capturedHolds)
+		memLivro.mu.Unlock()
+		assertCondition("5.1 Direct Livro capture bypassed when Ativos coordinates", numHolds == 0, "direct hold was captured")
+	}
+
+	// 5.2 Standalone OMS Mode (Ativos is nil): Verify direct Livro settlement
+	standaloneProc := worker.NewFillProcessor(h.OrdersRepo, h.LivroClient, nil)
+	standaloneOrder := &db.BrokerOrder{
+		ID:               uuid.New(),
+		TradeIntentID:    uuid.New(),
+		TenantID:         "tenant-alpha",
+		UserID:           "user-standalone-1",
+		Provider:         "BINANCE",
+		ProviderOrderID:  "999",
+		Symbol:           "BTCUSDT",
+		Side:             db.SideBuy,
+		TargetQuantity:   decimal.RequireFromString("1.0"),
+		Status:           db.StatusSubmitted,
+		FilledQuantity:   decimal.Zero,
+		AverageFillPrice: decimal.Zero,
+		LivroHoldID:      "hold-standalone-999",
+	}
+	_ = h.OrdersRepo.CreateOrder(ctx, standaloneOrder)
+	standaloneEvent := worker.FillEvent{
+		Provider:         "BINANCE",
+		ProviderOrderID:  "999",
+		Symbol:           "BTCUSDT",
+		Side:             "BUY",
+		Status:           "FILLED",
+		ExecutedQuantity: decimal.RequireFromString("1.0"),
+		FillPrice:        decimal.RequireFromString("64000.00"),
+	}
+	standaloneErr := standaloneProc.ProcessFill(ctx, standaloneEvent)
+	assertCondition("5.2 Standalone ProcessFill succeeded", standaloneErr == nil, fmt.Sprintf("%v", standaloneErr))
+
+	if memLivro, ok := h.LivroClient.(*memoryLivroClient); ok {
+		memLivro.mu.Lock()
+		numHolds := len(memLivro.capturedHolds)
+		var lastHold livro.CaptureHoldParams
+		if numHolds > 0 {
+			lastHold = memLivro.capturedHolds[numHolds-1]
+		}
+		memLivro.mu.Unlock()
+
+		assertCondition("5.2 Standalone Livro CaptureHold was invoked", numHolds > 0, "no holds captured")
+		assertEqual("5.2 Standalone Livro hold ID matches", "hold-standalone-999", lastHold.HoldID)
+		assertEqual("5.2 Standalone Livro captured amount is $64000.00", "64000.0000", lastHold.Amount.StringFixed(4))
+		assertCondition("5.2 Standalone Release remainder is true for final fill", lastHold.ReleaseRemainder, "expected true")
 	}
 }
 

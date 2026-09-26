@@ -199,6 +199,16 @@ func TestFillProcessor_ProcessBuyFill(t *testing.T) {
 	assert.Equal(t, "hold-999", cap1.HoldID)
 	assert.True(t, decimal.RequireFromString("24000.0000").Equal(cap1.Amount))
 	assert.True(t, cap1.ReleaseRemainder)
+
+	// Test combined mode (production topology: both Livro and Ativos clients present):
+	// Ativos must coordinate; Pregão must NOT directly call Livro to avoid double-capture collision.
+	combinedLivro := &mockLivroClient{}
+	combinedAtivos := &mockAtivosClient{}
+	combinedProcessor := NewFillProcessor(ordersRepo, combinedLivro, combinedAtivos)
+	err = combinedProcessor.ProcessFill(context.Background(), event1)
+	require.NoError(t, err)
+	require.Len(t, combinedAtivos.syncCalls, 1)
+	require.Empty(t, combinedLivro.capturedHolds, "Pregão direct Livro capture must not run when Ativos coordinates")
 }
 
 func TestFillProcessor_ProcessSellFill(t *testing.T) {

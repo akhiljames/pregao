@@ -13,13 +13,12 @@ PG_USER="${PG_USER:-postgres}"
 PG_DB="${PG_DB:-pregao}"
 
 TENANT_ID="${1:-${TENANT_ID}}"
-USER_ID="${2:-${USER_ID}}"
-BINANCE_KEY="${3:-${BINANCE_API_KEY}}"
-BINANCE_SECRET="${4:-${BINANCE_API_SECRET}}"
+BINANCE_KEY="${2:-${BINANCE_API_KEY}}"
+BINANCE_SECRET="${3:-${BINANCE_API_SECRET}}"
 
-if [ -z "$TENANT_ID" ] || [ -z "$USER_ID" ]; then
-    echo "Usage: $0 <tenant_id> <user_id> [binance_api_key] [binance_api_secret]"
-    echo "Or set environment variables: TENANT_ID, USER_ID, BINANCE_API_KEY, BINANCE_API_SECRET"
+if [ -z "$TENANT_ID" ]; then
+    echo "Usage: $0 <tenant_id> [binance_api_key] [binance_api_secret]"
+    echo "Or set environment variables: TENANT_ID, BINANCE_API_KEY, BINANCE_API_SECRET"
     exit 1
 fi
 
@@ -73,9 +72,9 @@ echo "✅ Successfully encrypted credentials into transit ciphertexts."
 # 4. Insert / Update into pregao PostgreSQL database
 echo "💾 Seeding credentials into $PG_CONTAINER ($PG_DB)..."
 
-SQL_STMT="INSERT INTO broker_credentials (id, tenant_id, user_id, provider, api_key_ciphertext, api_secret_ciphertext, created_at)
-VALUES (gen_random_uuid(), '$TENANT_ID', '$USER_ID', 'BINANCE', '$CIPHERTEXT_KEY', '$CIPHERTEXT_SECRET', NOW())
-ON CONFLICT (tenant_id, user_id, provider)
+SQL_STMT="INSERT INTO broker_credentials (id, tenant_id, provider, api_key_ciphertext, api_secret_ciphertext, created_at)
+VALUES (gen_random_uuid(), '$TENANT_ID', 'BINANCE', '$CIPHERTEXT_KEY', '$CIPHERTEXT_SECRET', NOW())
+ON CONFLICT (tenant_id, provider)
 DO UPDATE SET api_key_ciphertext = EXCLUDED.api_key_ciphertext,
               api_secret_ciphertext = EXCLUDED.api_secret_ciphertext,
               created_at = NOW();"
@@ -84,6 +83,5 @@ docker exec "$PG_CONTAINER" psql -U "$PG_USER" -d "$PG_DB" -c "$SQL_STMT" >/dev/
 
 echo "🎉 Credentials successfully seeded for:"
 echo "   Tenant ID : $TENANT_ID"
-echo "   User ID   : $USER_ID"
 echo "   Provider  : BINANCE"
 echo "   Key Cipher: ${CIPHERTEXT_KEY:0:25}..."
