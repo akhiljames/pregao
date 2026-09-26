@@ -22,16 +22,15 @@ const (
 	SideSell = "SELL"
 )
 
-// BrokerCredential represents encrypted broker API credentials stored in PostgreSQL.
+// BrokerCredential represents encrypted broker API credentials stored in PostgreSQL at the Tenant (Fund Manager) level.
 // Plaintext credentials NEVER touch PostgreSQL or disk.
 type BrokerCredential struct {
-	ID                   uuid.UUID `json:"id" db:"id"`
-	TenantID             string    `json:"tenant_id" db:"tenant_id"`
-	UserID               string    `json:"user_id" db:"user_id"`
-	Provider             string    `json:"provider" db:"provider"`
-	APIKeyCiphertext     string    `json:"api_key_ciphertext" db:"api_key_ciphertext"`
-	APISecretCiphertext  string    `json:"api_secret_ciphertext" db:"api_secret_ciphertext"`
-	CreatedAt            time.Time `json:"created_at" db:"created_at"`
+	ID                  uuid.UUID `json:"id" db:"id"`
+	TenantID            string    `json:"tenant_id" db:"tenant_id"`
+	Provider            string    `json:"provider" db:"provider"`
+	APIKeyCiphertext    string    `json:"api_key_ciphertext" db:"api_key_ciphertext"`
+	APISecretCiphertext string    `json:"api_secret_ciphertext" db:"api_secret_ciphertext"`
+	CreatedAt           time.Time `json:"created_at" db:"created_at"`
 }
 
 // BrokerOrder tracks the complete execution lifecycle of an order tied to an Ativos trade intent.

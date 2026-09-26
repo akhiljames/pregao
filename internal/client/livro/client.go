@@ -3,6 +3,7 @@ package livro
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	livrov1 "github.com/akhiljames/proto/gen/go/livro/v1"
 	"github.com/shopspring/decimal"
@@ -36,12 +37,14 @@ type Client interface {
 	CaptureHold(ctx context.Context, params CaptureHoldParams) (*livrov1.CaptureHoldResponse, error)
 	Credit(ctx context.Context, params CreditParams) (*livrov1.TransactionResponse, error)
 	GetBalance(ctx context.Context, accountID string) (decimal.Decimal, error)
+	GetOrCreateBrokerAccount(ctx context.Context, tenantID string) (string, error)
 	Close() error
 }
 
 type grpcLivroClient struct {
-	conn   *grpc.ClientConn
-	client livrov1.LedgerServiceClient
+	conn           *grpc.ClientConn
+	client         livrov1.LedgerServiceClient
+	brokerAccounts sync.Map
 }
 
 // NewClient dials Livro LedgerService over gRPC.
@@ -121,6 +124,54 @@ func (c *grpcLivroClient) GetBalance(ctx context.Context, accountID string) (dec
 		return decimal.Zero, fmt.Errorf("failed to parse livro balance %q: %w", resp.Balance, err)
 	}
 	return bal, nil
+}
+
+func (c *grpcLivroClient) GetOrCreateBrokerAccount(ctx context.Context, tenantID string) (string, error) {
+	if val, ok := c.brokerAccounts.Load(tenantID); ok {
+		return val.(string), nil
+	}
+
+	resp, err := c.client.InitializeAccount(ctx, &livrov1.InitializeAccountRequest{
+		Scope: &livrov1.Scope{
+			Type: "tenant",
+			Id:   tenantID,
+		},
+		EntityType:     "broker",
+		EntityId:       "clearing",
+		AccountName:    "broker_usd",
+		Currency:       "USD",
+		AccountType:    livrov1.AccountType_ACCOUNT_TYPE_CUSTOMER_WALLET,
+		AllowOverdraft: true,
+	})
+	if err == nil && resp != nil && resp.Account != nil && resp.Account.Id != "" {
+		c.brokerAccounts.Store(tenantID, resp.Account.Id)
+		return resp.Account.Id, nil
+	}
+
+	lookupResp, err := c.client.GetAccount(ctx, &livrov1.GetAccountRequest{
+		Identifier: &livrov1.GetAccountRequest_Lookup{
+			Lookup: &livrov1.AccountLookup{
+				Scope: &livrov1.Scope{
+					Type: "tenant",
+					Id:   tenantID,
+				},
+				EntityType:  "broker",
+				EntityId:    "clearing",
+				AccountName: "broker_usd",
+				Currency:    "USD",
+			},
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve broker clearing account in livro: %w", err)
+	}
+
+	if lookupResp == nil || lookupResp.Account == nil || lookupResp.Account.Id == "" {
+		return "", fmt.Errorf("empty broker clearing account returned from livro")
+	}
+
+	c.brokerAccounts.Store(tenantID, lookupResp.Account.Id)
+	return lookupResp.Account.Id, nil
 }
 
 func (c *grpcLivroClient) Close() error {

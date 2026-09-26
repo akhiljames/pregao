@@ -3,21 +3,20 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Table: broker_credentials
--- Stores OpenBao ciphertexts mapping users to their broker API keys.
+-- Stores OpenBao ciphertexts mapping fund managers (tenants) to their broker API keys.
 -- Plaintext credentials NEVER touch PostgreSQL.
 CREATE TABLE IF NOT EXISTS broker_credentials (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id VARCHAR(64) NOT NULL,
-    user_id VARCHAR(64) NOT NULL,
     provider VARCHAR(32) NOT NULL,
     api_key_ciphertext TEXT NOT NULL,
     api_secret_ciphertext TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_broker_credentials UNIQUE (tenant_id, user_id, provider)
+    CONSTRAINT uq_broker_credentials UNIQUE (tenant_id, provider)
 );
 
 CREATE INDEX IF NOT EXISTS idx_broker_credentials_lookup 
-    ON broker_credentials (tenant_id, user_id, provider);
+    ON broker_credentials (tenant_id, provider);
 
 -- Table: broker_orders
 -- Tracks execution lifecycle tied to Ativos intents.

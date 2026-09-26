@@ -17,7 +17,7 @@ var (
 
 // CredentialsRepository defines operations for broker_credentials table.
 type CredentialsRepository interface {
-	GetCredentials(ctx context.Context, tenantID, userID, provider string) (*BrokerCredential, error)
+	GetCredentials(ctx context.Context, tenantID, provider string) (*BrokerCredential, error)
 	SaveCredentials(ctx context.Context, cred *BrokerCredential) error
 }
 
@@ -30,17 +30,16 @@ func NewCredentialsRepository(pool *pgxpool.Pool) CredentialsRepository {
 	return &pgCredentialsRepo{pool: pool}
 }
 
-func (r *pgCredentialsRepo) GetCredentials(ctx context.Context, tenantID, userID, provider string) (*BrokerCredential, error) {
+func (r *pgCredentialsRepo) GetCredentials(ctx context.Context, tenantID, provider string) (*BrokerCredential, error) {
 	query := `
-		SELECT id, tenant_id, user_id, provider, api_key_ciphertext, api_secret_ciphertext, created_at
+		SELECT id, tenant_id, provider, api_key_ciphertext, api_secret_ciphertext, created_at
 		FROM broker_credentials
-		WHERE tenant_id = $1 AND user_id = $2 AND provider = $3
+		WHERE tenant_id = $1 AND provider = $2
 	`
 	var cred BrokerCredential
-	err := r.pool.QueryRow(ctx, query, tenantID, userID, provider).Scan(
+	err := r.pool.QueryRow(ctx, query, tenantID, provider).Scan(
 		&cred.ID,
 		&cred.TenantID,
-		&cred.UserID,
 		&cred.Provider,
 		&cred.APIKeyCiphertext,
 		&cred.APISecretCiphertext,
@@ -65,9 +64,9 @@ func (r *pgCredentialsRepo) SaveCredentials(ctx context.Context, cred *BrokerCre
 
 	query := `
 		INSERT INTO broker_credentials (
-			id, tenant_id, user_id, provider, api_key_ciphertext, api_secret_ciphertext, created_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (tenant_id, user_id, provider) DO UPDATE SET
+			id, tenant_id, provider, api_key_ciphertext, api_secret_ciphertext, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (tenant_id, provider) DO UPDATE SET
 			api_key_ciphertext = EXCLUDED.api_key_ciphertext,
 			api_secret_ciphertext = EXCLUDED.api_secret_ciphertext
 	`
@@ -76,7 +75,6 @@ func (r *pgCredentialsRepo) SaveCredentials(ctx context.Context, cred *BrokerCre
 		query,
 		cred.ID,
 		cred.TenantID,
-		cred.UserID,
 		cred.Provider,
 		cred.APIKeyCiphertext,
 		cred.APISecretCiphertext,

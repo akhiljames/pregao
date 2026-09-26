@@ -46,7 +46,6 @@ func TestBrokerCredential_Model(t *testing.T) {
 	cred := BrokerCredential{
 		ID:                  credID,
 		TenantID:            "tenant-1",
-		UserID:              "user-1",
 		Provider:            "BINANCE",
 		APIKeyCiphertext:    "vault:v1:some_encrypted_key",
 		APISecretCiphertext: "vault:v1:some_encrypted_secret",
@@ -54,6 +53,8 @@ func TestBrokerCredential_Model(t *testing.T) {
 	}
 
 	assert.Equal(t, credID, cred.ID)
+	assert.Equal(t, "tenant-1", cred.TenantID)
+	assert.Equal(t, "BINANCE", cred.Provider)
 	assert.Equal(t, "vault:v1:some_encrypted_key", cred.APIKeyCiphertext)
 	assert.Equal(t, "vault:v1:some_encrypted_secret", cred.APISecretCiphertext)
 }

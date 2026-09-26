@@ -90,6 +90,10 @@ func (m *mockLivroClient) GetBalance(ctx context.Context, accountID string) (dec
 	return decimal.RequireFromString("10000.0000"), nil
 }
 
+func (m *mockLivroClient) GetOrCreateBrokerAccount(ctx context.Context, tenantID string) (string, error) {
+	return "00000000-0000-0000-0000-000000000001", nil
+}
+
 func (m *mockLivroClient) Close() error { return nil }
 
 // MockAtivosClient implements ativos.Client in-memory for testing.

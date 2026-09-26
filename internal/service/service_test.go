@@ -151,8 +151,8 @@ func newMockCredentialsRepo() *mockCredentialsRepo {
 	return &mockCredentialsRepo{creds: make(map[string]*db.BrokerCredential)}
 }
 
-func (m *mockCredentialsRepo) GetCredentials(ctx context.Context, tenantID, userID, provider string) (*db.BrokerCredential, error) {
-	key := tenantID + ":" + userID + ":" + provider
+func (m *mockCredentialsRepo) GetCredentials(ctx context.Context, tenantID, provider string) (*db.BrokerCredential, error) {
+	key := tenantID + ":" + provider
 	if c, ok := m.creds[key]; ok {
 		return c, nil
 	}
@@ -160,7 +160,7 @@ func (m *mockCredentialsRepo) GetCredentials(ctx context.Context, tenantID, user
 }
 
 func (m *mockCredentialsRepo) SaveCredentials(ctx context.Context, cred *db.BrokerCredential) error {
-	key := cred.TenantID + ":" + cred.UserID + ":" + cred.Provider
+	key := cred.TenantID + ":" + cred.Provider
 	m.creds[key] = cred
 	return nil
 }
@@ -230,6 +230,10 @@ func (m *mockLivroClient) Credit(ctx context.Context, params livro.CreditParams)
 
 func (m *mockLivroClient) GetBalance(ctx context.Context, accountID string) (decimal.Decimal, error) {
 	return m.balance, nil
+}
+
+func (m *mockLivroClient) GetOrCreateBrokerAccount(ctx context.Context, tenantID string) (string, error) {
+	return "00000000-0000-0000-0000-000000000001", nil
 }
 
 func (m *mockLivroClient) Close() error { return nil }
@@ -388,10 +392,9 @@ func TestPregaoServer_ExecuteTrade_Success(t *testing.T) {
 		decryptedSecret: "real-binance-secret",
 	}
 
-	// Seed ciphertext credentials
+	// Seed ciphertext credentials at tenant level
 	require.NoError(t, credsRepo.SaveCredentials(context.Background(), &db.BrokerCredential{
 		TenantID:            "tenant-1",
-		UserID:              "user-1",
 		Provider:            "BINANCE",
 		APIKeyCiphertext:    "vault:v1:encrypted_key",
 		APISecretCiphertext: "vault:v1:encrypted_secret",
@@ -468,7 +471,6 @@ func TestPregaoServer_SyncBrokerBalances(t *testing.T) {
 
 	require.NoError(t, credsRepo.SaveCredentials(context.Background(), &db.BrokerCredential{
 		TenantID:            "tenant-1",
-		UserID:              "user-1",
 		Provider:            "BINANCE",
 		APIKeyCiphertext:    "vault:v1:k",
 		APISecretCiphertext: "vault:v1:s",

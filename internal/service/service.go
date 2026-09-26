@@ -245,11 +245,11 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 		}
 	}
 
-	// Step 2: Fetch ciphertext credentials from PostgreSQL
-	cred, err := s.credentialsRepo.GetCredentials(ctx, req.TenantId, req.UserId, provider)
+	// Step 2: Fetch ciphertext credentials from PostgreSQL at Tenant level
+	cred, err := s.credentialsRepo.GetCredentials(ctx, req.TenantId, provider)
 	if err != nil {
 		if errors.Is(err, db.ErrCredentialsNotFound) {
-			return nil, status.Errorf(codes.FailedPrecondition, "broker credentials not found for tenant %s, user %s, provider %s", req.TenantId, req.UserId, provider)
+			return nil, status.Errorf(codes.FailedPrecondition, "broker credentials not found for tenant %s, provider %s", req.TenantId, provider)
 		}
 		return nil, status.Errorf(codes.Internal, "database error loading broker credentials: %v", err)
 	}
@@ -339,9 +339,6 @@ func (s *PregaoServer) SyncBrokerBalances(ctx context.Context, req *pregaov1.Syn
 	if strings.TrimSpace(req.TenantId) == "" {
 		return nil, status.Error(codes.InvalidArgument, "tenant_id is required")
 	}
-	if strings.TrimSpace(req.UserId) == "" {
-		return nil, status.Error(codes.InvalidArgument, "user_id is required")
-	}
 
 	// Resolve broker enum from the wire string; fall back to service default.
 	b := broker.ParseBroker(strings.ToUpper(strings.TrimSpace(req.Provider)))
@@ -350,11 +347,11 @@ func (s *PregaoServer) SyncBrokerBalances(ctx context.Context, req *pregaov1.Syn
 	}
 	provider := broker.ProviderName(b)
 
-	// Fetch encrypted credentials
-	cred, err := s.credentialsRepo.GetCredentials(ctx, req.TenantId, req.UserId, provider)
+	// Fetch encrypted credentials at Tenant level
+	cred, err := s.credentialsRepo.GetCredentials(ctx, req.TenantId, provider)
 	if err != nil {
 		if errors.Is(err, db.ErrCredentialsNotFound) {
-			return nil, status.Errorf(codes.FailedPrecondition, "broker credentials not configured")
+			return nil, status.Errorf(codes.FailedPrecondition, "broker credentials not configured for tenant %s, provider %s", req.TenantId, provider)
 		}
 		return nil, status.Errorf(codes.Internal, "database error: %v", err)
 	}
@@ -384,11 +381,22 @@ func (s *PregaoServer) SyncBrokerBalances(ctx context.Context, req *pregaov1.Syn
 	// Query Livro ledger balance
 	ledgerBal := decimal.Zero
 	if s.livroClient != nil {
-		lBal, err := s.livroClient.GetBalance(ctx, req.UserId)
-		if err == nil {
-			ledgerBal = lBal
-		} else {
-			log.Printf("[LIVRO_WARN] Failed to query ledger balance for user %s: %v", req.UserId, err)
+		accountID := strings.TrimSpace(req.UserId)
+		if accountID == "" {
+			clearingAccID, err := s.livroClient.GetOrCreateBrokerAccount(ctx, req.TenantId)
+			if err == nil {
+				accountID = clearingAccID
+			} else {
+				log.Printf("[LIVRO_WARN] Failed to resolve clearing account for tenant %s: %v", req.TenantId, err)
+			}
+		}
+		if accountID != "" {
+			lBal, err := s.livroClient.GetBalance(ctx, accountID)
+			if err == nil {
+				ledgerBal = lBal
+			} else {
+				log.Printf("[LIVRO_WARN] Failed to query ledger balance for account %s: %v", accountID, err)
+			}
 		}
 	}
 

@@ -283,10 +283,10 @@ func newMemoryCredentialsRepo() *memoryCredentialsRepo {
 	return &memoryCredentialsRepo{creds: make(map[string]*db.BrokerCredential)}
 }
 
-func (r *memoryCredentialsRepo) GetCredentials(ctx context.Context, tenantID, userID, provider string) (*db.BrokerCredential, error) {
+func (r *memoryCredentialsRepo) GetCredentials(ctx context.Context, tenantID, provider string) (*db.BrokerCredential, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	key := tenantID + ":" + userID + ":" + provider
+	key := tenantID + ":" + provider
 	if c, ok := r.creds[key]; ok {
 		return c, nil
 	}
@@ -296,7 +296,7 @@ func (r *memoryCredentialsRepo) GetCredentials(ctx context.Context, tenantID, us
 func (r *memoryCredentialsRepo) SaveCredentials(ctx context.Context, cred *db.BrokerCredential) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := cred.TenantID + ":" + cred.UserID + ":" + cred.Provider
+	key := cred.TenantID + ":" + cred.Provider
 	r.creds[key] = cred
 	return nil
 }
@@ -390,6 +390,10 @@ func (m *memoryLivroClient) GetBalance(ctx context.Context, accountID string) (d
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.ledgerBalance, nil
+}
+
+func (m *memoryLivroClient) GetOrCreateBrokerAccount(ctx context.Context, tenantID string) (string, error) {
+	return "00000000-0000-0000-0000-000000000001", nil
 }
 
 func (m *memoryLivroClient) Close() error { return nil }
@@ -678,11 +682,10 @@ func runSuite3TradeExecution(ctx context.Context, h *TestHarness) {
 	intentID := uuid.New().String()
 	idemKey := "idem-exec-" + intentID
 
-	// Seed credentials if testing in-memory harness
+	// Seed credentials at tenant (fund manager) level
 	if h.CredsRepo != nil {
 		_ = h.CredsRepo.SaveCredentials(ctx, &db.BrokerCredential{
 			TenantID:            tenantID,
-			UserID:              userID,
 			Provider:            "BINANCE",
 			APIKeyCiphertext:    "vault:v1:test_key",
 			APISecretCiphertext: "vault:v1:test_sec",
@@ -747,6 +750,26 @@ func runSuite3TradeExecution(ctx context.Context, h *TestHarness) {
 		Quantity:      "1.0",
 	})
 	assertStatusCode("3.5 Rejects missing credentials with FailedPrecondition", errNoCreds, codes.FailedPrecondition)
+
+	// 3.6 Multi-User Omnibus: Second user under same tenant executes trade using shared tenant credentials
+	user2ID := "user-retail-2"
+	reqUser2 := &pregaov1.ExecuteTradeRequest{
+		TradeIntentId:  uuid.New().String(),
+		TenantId:       tenantID,
+		UserId:         user2ID,
+		Provider:       "BINANCE",
+		Symbol:         "ETHUSDT",
+		Side:           pregaov1.ExecuteTradeRequest_BUY,
+		Quantity:       "2.00000000",
+		IdempotencyKey: "idem-exec-user2-" + uuid.New().String(),
+	}
+	respUser2, errUser2 := h.Client.ExecuteTrade(ctx, reqUser2)
+	if errUser2 != nil {
+		recordFail("3.6 Second user trade using shared tenant credentials", errUser2)
+	} else {
+		assertCondition("3.6 Second user trade succeeded under tenant omnibus account", respUser2.ProviderOrderId != "", "provider_order_id was empty")
+		assertEqual("3.6 Second user order status is SUBMITTED", db.StatusSubmitted, respUser2.Status)
+	}
 }
 
 // -----------------------------------------------------------------------------
