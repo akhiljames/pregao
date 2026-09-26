@@ -12,6 +12,7 @@ import (
 	"github.com/akhiljames/pregao/internal/client/livro"
 	"github.com/akhiljames/pregao/internal/db"
 	"github.com/akhiljames/pregao/internal/vault"
+	"github.com/akhiljames/pregao/internal/worker"
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
@@ -192,9 +193,10 @@ func (m *mockOrdersRepo) GetOrderByIdempotencyKey(ctx context.Context, tenantID,
 }
 
 func (m *mockOrdersRepo) GetOrderByProviderOrderID(ctx context.Context, provider, providerOrderID string) (*db.BrokerOrder, error) {
-	key := provider + ":" + providerOrderID
-	if o, ok := m.orders[key]; ok {
-		return o, nil
+	for _, o := range m.orders {
+		if o.Provider == provider && o.ProviderOrderID == providerOrderID {
+			return o, nil
+		}
 	}
 	return nil, db.ErrOrderNotFound
 }
@@ -506,3 +508,78 @@ func TestPregaoServer_SyncBrokerBalances(t *testing.T) {
 	assert.False(t, resp.InSync)
 	assert.Equal(t, "1000.5000", resp.NetFiatAdjustment)
 }
+
+type mockFillProcessor struct {
+	ordersRepo db.OrdersRepository
+	lastEvent  worker.FillEvent
+}
+
+func (m *mockFillProcessor) ProcessFill(ctx context.Context, event worker.FillEvent) error {
+	m.lastEvent = event
+	order, err := m.ordersRepo.GetOrderByProviderOrderID(ctx, event.Provider, event.ProviderOrderID)
+	if err != nil {
+		return err
+	}
+	newFilledQty := order.FilledQuantity.Add(event.ExecutedQuantity)
+	return m.ordersRepo.UpdateOrderFill(ctx, event.Provider, event.ProviderOrderID, event.Status, newFilledQty, event.FillPrice)
+}
+
+func TestPregaoServer_ExecuteTrade_FillProcessor_NoDoubleCount(t *testing.T) {
+	ordersRepo := newMockOrdersRepo()
+	credsRepo := newMockCredentialsRepo()
+	vaultMock := &mockVaultClient{
+		decryptedKey:    "real-binance-key",
+		decryptedSecret: "real-binance-secret",
+	}
+
+	require.NoError(t, credsRepo.SaveCredentials(context.Background(), &db.BrokerCredential{
+		TenantID:            "tenant-1",
+		Provider:            "BINANCE",
+		APIKeyCiphertext:    "vault:v1:encrypted_key",
+		APISecretCiphertext: "vault:v1:encrypted_secret",
+	}))
+
+	fillQty := decimal.RequireFromString("0.00011000")
+	fillPrice := decimal.RequireFromString("83924.7300")
+
+	brokerMock := &mockBroker{
+		marketOrderResp: &broker.OrderResult{
+			ProviderOrderID:  "binance-order-12345",
+			Status:           db.StatusFilled,
+			ExecutedQuantity: fillQty,
+			AveragePrice:     fillPrice,
+		},
+	}
+
+	fillProc := &mockFillProcessor{ordersRepo: ordersRepo}
+
+	srv := NewPregaoServer(ServerParams{
+		OrdersRepo:      ordersRepo,
+		CredentialsRepo: credsRepo,
+		VaultClient:     vaultMock,
+		BrokerClient:    brokerMock,
+		FillProcessor:   fillProc,
+	})
+
+	intentID := uuid.New()
+	resp, err := srv.ExecuteTrade(context.Background(), &pregaov1.ExecuteTradeRequest{
+		TradeIntentId:  intentID.String(),
+		TenantId:       "tenant-1",
+		UserId:         "user-1",
+		Provider:       "BINANCE",
+		Symbol:         "BTCUSDT",
+		Side:           pregaov1.ExecuteTradeRequest_BUY,
+		Quantity:       "0.00011671",
+		IdempotencyKey: "idem-single-fill",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "binance-order-12345", resp.ProviderOrderId)
+
+	// Verify order was saved and filled in database without double counting
+	savedOrder, err := ordersRepo.GetOrderByIntentID(context.Background(), intentID)
+	require.NoError(t, err)
+	assert.Equal(t, "binance-order-12345", savedOrder.ProviderOrderID)
+	assert.True(t, fillQty.Equal(savedOrder.FilledQuantity), "expected %s, got %s", fillQty, savedOrder.FilledQuantity)
+	assert.True(t, fillPrice.Equal(savedOrder.AverageFillPrice), "expected %s, got %s", fillPrice, savedOrder.AverageFillPrice)
+}
+

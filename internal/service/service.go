@@ -284,6 +284,15 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 		orderStatus = orderResult.Status
 	}
 
+	// If fillProcessor is wired, the order starts with 0 filled quantity so that ProcessFill
+	// can accurately apply the fill without double-counting the initial executed quantity.
+	filledQty := decimal.Zero
+	avgPrice := decimal.Zero
+	if s.fillProcessor == nil {
+		filledQty = orderResult.ExecutedQuantity
+		avgPrice = orderResult.AveragePrice
+	}
+
 	newOrder := &db.BrokerOrder{
 		ID:               uuid.New(),
 		TradeIntentID:    tradeIntentUUID,
@@ -295,8 +304,8 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 		Side:             sideStr,
 		TargetQuantity:   qty,
 		Status:           orderStatus,
-		FilledQuantity:   orderResult.ExecutedQuantity,
-		AverageFillPrice: orderResult.AveragePrice,
+		FilledQuantity:   filledQty,
+		AverageFillPrice: avgPrice,
 		IdempotencyKey:   req.IdempotencyKey,
 		PortfolioID:      req.PortfolioId,
 		LivroHoldID:      req.LivroHoldId,
