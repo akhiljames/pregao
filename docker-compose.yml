@@ -1,25 +1,6 @@
 version: "3.8"
 
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: pregao-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgrespassword
-      POSTGRES_DB: pregao
-    ports:
-      - "5434:5432"
-    volumes:
-      - pregao_pgdata:/var/lib/postgresql/data
-      - ./migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d pregao"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   redis:
     image: redis:7-alpine
     container_name: pregao-redis
@@ -67,7 +48,7 @@ services:
     environment:
       PORT: "50053"
       HTTP_PORT: "8080"
-      DATABASE_URL: "postgres://postgres:postgrespassword@postgres:5432/pregao?sslmode=disable"
+      DATABASE_URL: "postgres://pregao_user:pregao_pass@host.docker.internal:5432/bolsa?sslmode=disable&search_path=pregao"
       REDIS_ADDR: "redis:6379"
       OPENBAO_ADDR: "http://openbao:8200"
       OPENBAO_TOKEN: "root"
@@ -77,13 +58,10 @@ services:
       ATIVOS_GRPC_ADDR: "host.docker.internal:50052"
       DEFAULT_BROKER: "BINANCE"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
       vault-init:
         condition: service_completed_successfully
 
 volumes:
-  pregao_pgdata:
   pregao_redisdata:
