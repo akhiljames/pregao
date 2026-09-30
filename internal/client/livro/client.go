@@ -3,7 +3,6 @@ package livro
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	livrov1 "github.com/akhiljames/proto/gen/go/livro/v1"
 	"github.com/shopspring/decimal"
@@ -42,9 +41,8 @@ type Client interface {
 }
 
 type grpcLivroClient struct {
-	conn           *grpc.ClientConn
-	client         livrov1.LedgerServiceClient
-	brokerAccounts sync.Map
+	conn   *grpc.ClientConn
+	client livrov1.LedgerServiceClient
 }
 
 // NewClient dials Livro LedgerService over gRPC.
@@ -127,10 +125,6 @@ func (c *grpcLivroClient) GetBalance(ctx context.Context, accountID string) (dec
 }
 
 func (c *grpcLivroClient) GetOrCreateBrokerAccount(ctx context.Context, tenantID string) (string, error) {
-	if val, ok := c.brokerAccounts.Load(tenantID); ok {
-		return val.(string), nil
-	}
-
 	resp, err := c.client.InitializeAccount(ctx, &livrov1.InitializeAccountRequest{
 		Scope: &livrov1.Scope{
 			Type: "tenant",
@@ -144,7 +138,6 @@ func (c *grpcLivroClient) GetOrCreateBrokerAccount(ctx context.Context, tenantID
 		AllowOverdraft: true,
 	})
 	if err == nil && resp != nil && resp.Account != nil && resp.Account.Id != "" {
-		c.brokerAccounts.Store(tenantID, resp.Account.Id)
 		return resp.Account.Id, nil
 	}
 
@@ -170,7 +163,6 @@ func (c *grpcLivroClient) GetOrCreateBrokerAccount(ctx context.Context, tenantID
 		return "", fmt.Errorf("empty broker clearing account returned from livro")
 	}
 
-	c.brokerAccounts.Store(tenantID, lookupResp.Account.Id)
 	return lookupResp.Account.Id, nil
 }
 
