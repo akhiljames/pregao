@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	livrov1 "github.com/akhiljames/proto/gen/go/livro/v1"
 	pregaov1 "github.com/akhiljames/proto/gen/go/pregao/v1"
@@ -91,6 +94,8 @@ type mockBroker struct {
 	rateLimitError  bool
 	marketOrderResp *broker.OrderResult
 	marketOrderErr  error
+	orderCalls      atomic.Int32
+	orderDelay      time.Duration
 	balancesResp    map[string]decimal.Decimal
 }
 
@@ -117,6 +122,8 @@ func (m *mockBroker) ValidateSymbols(ctx context.Context, symbols []string) (map
 
 func (m *mockBroker) PlaceMarketOrder(ctx context.Context, creds *vault.PlaintextCredentials, req broker.MarketOrderRequest) (*broker.OrderResult, error) {
 	defer creds.Zero()
+	m.orderCalls.Add(1)
+	time.Sleep(m.orderDelay)
 	if m.marketOrderErr != nil {
 		return nil, m.marketOrderErr
 	}
@@ -167,6 +174,7 @@ func (m *mockCredentialsRepo) SaveCredentials(ctx context.Context, cred *db.Brok
 }
 
 type mockOrdersRepo struct {
+	mu     sync.Mutex
 	orders map[string]*db.BrokerOrder
 }
 
@@ -175,38 +183,96 @@ func newMockOrdersRepo() *mockOrdersRepo {
 }
 
 func (m *mockOrdersRepo) GetOrderByIntentID(ctx context.Context, tradeIntentID uuid.UUID) (*db.BrokerOrder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, o := range m.orders {
 		if o.TradeIntentID == tradeIntentID {
-			return o, nil
+			found := *o
+			return &found, nil
 		}
 	}
 	return nil, db.ErrOrderNotFound
 }
 
 func (m *mockOrdersRepo) GetOrderByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string) (*db.BrokerOrder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, o := range m.orders {
 		if o.TenantID == tenantID && o.IdempotencyKey == idempotencyKey {
-			return o, nil
+			found := *o
+			return &found, nil
 		}
 	}
 	return nil, db.ErrOrderNotFound
 }
 
 func (m *mockOrdersRepo) GetOrderByProviderOrderID(ctx context.Context, provider, providerOrderID string) (*db.BrokerOrder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, o := range m.orders {
 		if o.Provider == provider && o.ProviderOrderID == providerOrderID {
-			return o, nil
+			found := *o
+			return &found, nil
 		}
 	}
 	return nil, db.ErrOrderNotFound
 }
 
+// CreateOrder seeds an order directly, bypassing the reservation flow.
 func (m *mockOrdersRepo) CreateOrder(ctx context.Context, order *db.BrokerOrder) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.orders[order.TradeIntentID.String()] = order
 	return nil
 }
 
+// ReserveOrder mirrors the PostgreSQL unique constraints on trade_intent_id and (tenant_id, idempotency_key).
+func (m *mockOrdersRepo) ReserveOrder(ctx context.Context, order *db.BrokerOrder) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, o := range m.orders {
+		if o.TradeIntentID == order.TradeIntentID {
+			return false, nil
+		}
+		if order.IdempotencyKey != "" && o.TenantID == order.TenantID && o.IdempotencyKey == order.IdempotencyKey {
+			return false, nil
+		}
+	}
+	order.Status = db.StatusPending
+	stored := *order
+	m.orders[order.TradeIntentID.String()] = &stored
+	return true, nil
+}
+
+func (m *mockOrdersRepo) ConfirmOrder(ctx context.Context, id uuid.UUID, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, o := range m.orders {
+		if o.ID == id && o.Status == db.StatusPending {
+			o.ProviderOrderID = providerOrderID
+			o.Status = status
+			o.FilledQuantity = filledQuantity
+			o.AverageFillPrice = avgFillPrice
+			return nil
+		}
+	}
+	return db.ErrOrderNotFound
+}
+
+func (m *mockOrdersRepo) ReleaseOrder(ctx context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, o := range m.orders {
+		if o.ID == id && o.Status == db.StatusPending {
+			delete(m.orders, key)
+		}
+	}
+	return nil
+}
+
 func (m *mockOrdersRepo) UpdateOrderFill(ctx context.Context, provider, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, o := range m.orders {
 		if o.Provider == provider && o.ProviderOrderID == providerOrderID {
 			o.Status = status

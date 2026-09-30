@@ -350,6 +350,51 @@ func (r *memoryOrdersRepo) CreateOrder(ctx context.Context, order *db.BrokerOrde
 	return nil
 }
 
+// ReserveOrder mirrors the PostgreSQL unique constraints on trade_intent_id and (tenant_id, idempotency_key).
+// The reservation is keyed by its ID until ConfirmOrder supplies the provider order ID.
+func (r *memoryOrdersRepo) ReserveOrder(ctx context.Context, order *db.BrokerOrder) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, o := range r.orders {
+		if o.TradeIntentID == order.TradeIntentID {
+			return false, nil
+		}
+		if order.IdempotencyKey != "" && o.TenantID == order.TenantID && o.IdempotencyKey == order.IdempotencyKey {
+			return false, nil
+		}
+	}
+	order.Status = db.StatusPending
+	stored := *order
+	r.orders[order.ID.String()] = &stored
+	return true, nil
+}
+
+func (r *memoryOrdersRepo) ConfirmOrder(ctx context.Context, id uuid.UUID, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	o, ok := r.orders[id.String()]
+	if !ok || o.Status != db.StatusPending {
+		return db.ErrOrderNotFound
+	}
+	delete(r.orders, id.String())
+	o.ProviderOrderID = providerOrderID
+	o.Status = status
+	o.FilledQuantity = filledQuantity
+	o.AverageFillPrice = avgFillPrice
+	o.UpdatedAt = time.Now().UTC()
+	r.orders[o.Provider+":"+providerOrderID] = o
+	return nil
+}
+
+func (r *memoryOrdersRepo) ReleaseOrder(ctx context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if o, ok := r.orders[id.String()]; ok && o.Status == db.StatusPending {
+		delete(r.orders, id.String())
+	}
+	return nil
+}
+
 func (r *memoryOrdersRepo) UpdateOrderFill(ctx context.Context, provider, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

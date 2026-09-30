@@ -9,6 +9,8 @@ import (
 
 // Order status constants.
 const (
+	// StatusPending marks a row reserved by ExecuteTrade before the broker has accepted the order.
+	StatusPending   = "PENDING"
 	StatusSubmitted = "SUBMITTED"
 	StatusPartial   = "PARTIAL"
 	StatusFilled    = "FILLED"

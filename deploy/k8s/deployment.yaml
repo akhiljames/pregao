@@ -5,15 +5,14 @@ metadata:
   labels:
     app.kubernetes.io/name: pregao
 spec:
-  # Keep at 1. ExecuteTrade deduplicates concurrent requests with an in-process
-  # lock and places the broker order before the order row is written, so two
-  # pods can both send the same order to the broker.
+  # ExecuteTrade deduplicates requests in PostgreSQL, so it no longer depends on
+  # a single pod. More than one replica has not been tested.
   replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: pregao
-  # Recreate, not RollingUpdate, for the same reason: the old pod must be gone
-  # before the new one serves. Costs a few seconds of downtime per rollout.
+  # Recreate stops the old pod before the new one serves, so two pods never
+  # overlap. Costs a few seconds of downtime per rollout.
   strategy:
     type: Recreate
   template:

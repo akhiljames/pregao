@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	ativosv1 "github.com/akhiljames/proto/gen/go/ativos/v1"
@@ -34,13 +33,20 @@ type PregaoServer struct {
 	ordersRepo      db.OrdersRepository
 	livroClient     livro.Client
 	fillProcessor   worker.FillProcessor
-	execLocks       sync.Map
+
+	// How long, and how often, a duplicate ExecuteTrade waits on another request's PENDING reservation.
+	reservationWait time.Duration
+	reservationPoll time.Duration
 }
 
-func (s *PregaoServer) getExecLock(key string) *sync.Mutex {
-	val, _ := s.execLocks.LoadOrStore(key, &sync.Mutex{})
-	return val.(*sync.Mutex)
-}
+const (
+	// reservationWriteTimeout bounds the PostgreSQL writes that settle an ExecuteTrade reservation.
+	// They run detached from the request context so a caller disconnect cannot strand a PENDING row.
+	reservationWriteTimeout = 5 * time.Second
+	// defaultReservationWait outlasts a healthy in-flight execution (vault, broker and DB timeouts).
+	defaultReservationWait = 30 * time.Second
+	defaultReservationPoll = 100 * time.Millisecond
+)
 
 // ServerParams encapsulates dependencies required to instantiate PregaoServer.
 type ServerParams struct {
@@ -70,6 +76,8 @@ func NewPregaoServer(params ServerParams) *PregaoServer {
 		ordersRepo:      params.OrdersRepo,
 		livroClient:     params.LivroClient,
 		fillProcessor:   params.FillProcessor,
+		reservationWait: defaultReservationWait,
+		reservationPoll: defaultReservationPoll,
 	}
 }
 
@@ -214,36 +222,47 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 	}
 	provider := broker.ProviderName(b)
 
-
-	// Serialize concurrent execution requests for the same trade intent or idempotency key
-	lockKey := req.TenantId + ":" + req.TradeIntentId
-	if req.IdempotencyKey != "" {
-		lockKey = req.TenantId + ":" + req.IdempotencyKey
+	sideStr := db.SideBuy
+	if req.Side == pregaov1.ExecuteTradeRequest_SELL {
+		sideStr = db.SideSell
 	}
-	mu := s.getExecLock(lockKey)
-	mu.Lock()
-	defer mu.Unlock()
 
-	// Step 1: Idempotency Check in PostgreSQL
-	existingOrder, err := s.ordersRepo.GetOrderByIntentID(ctx, tradeIntentUUID)
-	if err == nil && existingOrder != nil {
-		log.Printf("[IDEMPOTENCY] Returning existing order %s for intent %s", existingOrder.ProviderOrderID, req.TradeIntentId)
+	// Step 1: Reserve the trade in PostgreSQL before touching the broker. The unique constraints on
+	// trade_intent_id and (tenant_id, idempotency_key) make this insert the idempotency gate for
+	// concurrent requests on any replica. A duplicate gets the existing order back instead.
+	order := &db.BrokerOrder{
+		ID:             uuid.New(),
+		TradeIntentID:  tradeIntentUUID,
+		TenantID:       req.TenantId,
+		UserID:         req.UserId,
+		Provider:       provider,
+		Symbol:         strings.ToUpper(req.Symbol),
+		Side:           sideStr,
+		TargetQuantity: qty,
+		Status:         db.StatusPending,
+		IdempotencyKey: req.IdempotencyKey,
+		PortfolioID:    req.PortfolioId,
+		LivroHoldID:    req.LivroHoldId,
+	}
+	existingOrder, err := s.reserveOrder(ctx, order)
+	if err != nil {
+		return nil, err
+	}
+	if existingOrder != nil {
+		log.Printf("[IDEMPOTENCY] Returning existing order %s for intent %s", existingOrder.ProviderOrderID, existingOrder.TradeIntentID)
 		return &pregaov1.ExecuteTradeResponse{
 			ProviderOrderId: existingOrder.ProviderOrderID,
 			Status:          existingOrder.Status,
 		}, nil
 	}
 
-	if req.IdempotencyKey != "" {
-		existingByIdem, err := s.ordersRepo.GetOrderByIdempotencyKey(ctx, req.TenantId, req.IdempotencyKey)
-		if err == nil && existingByIdem != nil {
-			log.Printf("[IDEMPOTENCY] Returning existing order %s for idempotency key %s", existingByIdem.ProviderOrderID, req.IdempotencyKey)
-			return &pregaov1.ExecuteTradeResponse{
-				ProviderOrderId: existingByIdem.ProviderOrderID,
-				Status:          existingByIdem.Status,
-			}, nil
+	// Until the broker accepts the order, any failure releases the reservation so the intent can be retried.
+	dispatched := false
+	defer func() {
+		if !dispatched {
+			s.releaseReservation(ctx, order)
 		}
-	}
+	}()
 
 	// Step 2: Fetch ciphertext credentials from PostgreSQL at Tenant level
 	cred, err := s.credentialsRepo.GetCredentials(ctx, req.TenantId, provider)
@@ -263,11 +282,6 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 	defer plaintextCreds.Zero()
 
 	// Step 4: Dispatch Market Order to Broker with HMAC-SHA256 signature
-	sideStr := db.SideBuy
-	if req.Side == pregaov1.ExecuteTradeRequest_SELL {
-		sideStr = db.SideSell
-	}
-
 	orderResult, err := s.brokerClient.PlaceMarketOrder(ctx, plaintextCreds, broker.MarketOrderRequest{
 		Symbol:        strings.ToUpper(req.Symbol),
 		Side:          sideStr,
@@ -277,8 +291,9 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 	if err != nil {
 		return nil, status.Errorf(codes.Unavailable, "broker rejected order execution: %v", err)
 	}
+	dispatched = true
 
-	// Step 5: Persist execution state into PostgreSQL broker_orders
+	// Step 5: Record the broker's response on the reserved broker_orders row
 	orderStatus := db.StatusSubmitted
 	if orderResult.Status != "" {
 		orderStatus = orderResult.Status
@@ -293,26 +308,11 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 		avgPrice = orderResult.AveragePrice
 	}
 
-	newOrder := &db.BrokerOrder{
-		ID:               uuid.New(),
-		TradeIntentID:    tradeIntentUUID,
-		TenantID:         req.TenantId,
-		UserID:           req.UserId,
-		Provider:         provider,
-		ProviderOrderID:  orderResult.ProviderOrderID,
-		Symbol:           strings.ToUpper(req.Symbol),
-		Side:             sideStr,
-		TargetQuantity:   qty,
-		Status:           orderStatus,
-		FilledQuantity:   filledQty,
-		AverageFillPrice: avgPrice,
-		IdempotencyKey:   req.IdempotencyKey,
-		PortfolioID:      req.PortfolioId,
-		LivroHoldID:      req.LivroHoldId,
-	}
-
-	if err := s.ordersRepo.CreateOrder(ctx, newOrder); err != nil {
-		log.Printf("[DB_ERROR] Order executed on broker (%s) but failed to record in DB: %v", orderResult.ProviderOrderID, err)
+	confirmCtx, cancelConfirm := context.WithTimeout(context.WithoutCancel(ctx), reservationWriteTimeout)
+	err = s.ordersRepo.ConfirmOrder(confirmCtx, order.ID, orderResult.ProviderOrderID, orderStatus, filledQty, avgPrice)
+	cancelConfirm()
+	if err != nil {
+		log.Printf("[DB_ERROR] Order executed on broker (%s) but failed to record in DB, reservation %s left PENDING: %v", orderResult.ProviderOrderID, order.ID, err)
 		// We still return the provider_order_id so the caller can reconcile
 	}
 
@@ -338,6 +338,54 @@ func (s *PregaoServer) ExecuteTrade(ctx context.Context, req *pregaov1.ExecuteTr
 		ProviderOrderId: orderResult.ProviderOrderID,
 		Status:          orderStatus,
 	}, nil
+}
+
+// reserveOrder inserts order as the PENDING reservation for its trade intent. It returns (nil, nil)
+// once this request holds the reservation, or the already recorded order when the request is a
+// duplicate. While another request holds the reservation it waits for that request to record its
+// order or release the reservation, as the caller would have waited on a lock.
+func (s *PregaoServer) reserveOrder(ctx context.Context, order *db.BrokerOrder) (*db.BrokerOrder, error) {
+	deadline := time.Now().Add(s.reservationWait)
+	for {
+		reserved, err := s.ordersRepo.ReserveOrder(ctx, order)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "database error reserving trade execution: %v", err)
+		}
+		if reserved {
+			return nil, nil
+		}
+
+		existing, err := s.ordersRepo.GetOrderByIntentID(ctx, order.TradeIntentID)
+		if errors.Is(err, db.ErrOrderNotFound) && order.IdempotencyKey != "" {
+			existing, err = s.ordersRepo.GetOrderByIdempotencyKey(ctx, order.TenantID, order.IdempotencyKey)
+		}
+		switch {
+		case errors.Is(err, db.ErrOrderNotFound):
+			// The conflicting reservation was released since our insert; try to take it.
+		case err != nil:
+			return nil, status.Errorf(codes.Internal, "database error loading existing order: %v", err)
+		case existing.Status != db.StatusPending:
+			return existing, nil
+		}
+
+		if !time.Now().Before(deadline) {
+			return nil, status.Errorf(codes.Aborted, "trade intent %s is still being executed by another request", order.TradeIntentID)
+		}
+		select {
+		case <-ctx.Done():
+			return nil, status.FromContextError(ctx.Err()).Err()
+		case <-time.After(s.reservationPoll):
+		}
+	}
+}
+
+// releaseReservation deletes a reservation whose order never reached the broker.
+func (s *PregaoServer) releaseReservation(ctx context.Context, order *db.BrokerOrder) {
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), reservationWriteTimeout)
+	defer cancel()
+	if err := s.ordersRepo.ReleaseOrder(releaseCtx, order.ID); err != nil {
+		log.Printf("[DB_ERROR] Failed to release reservation %s for intent %s, retries are blocked until it is removed: %v", order.ID, order.TradeIntentID, err)
+	}
 }
 
 // -----------------------------------------------------------------------------

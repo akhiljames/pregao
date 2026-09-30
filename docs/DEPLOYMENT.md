@@ -230,11 +230,19 @@ kubectl delete -k deploy/k8s
 
 ## Operational notes
 
-- **One replica only.** `ExecuteTrade` guards against duplicate requests with
-  an in-process lock and sends the order to the broker before it writes the
-  order row. Two pods serving at once can place the same order twice. This is
-  why the Deployment has `replicas: 1` and the `Recreate` strategy. Do not
-  scale it up or switch to a rolling update.
+- **Replicas.** `ExecuteTrade` reserves a `PENDING` row in `broker_orders`
+  before it calls the broker. Unique constraints on `trade_intent_id` and
+  `(tenant_id, idempotency_key)` reject duplicates from any pod, so duplicate
+  protection no longer depends on a single replica. The Deployment still has
+  `replicas: 1` and the `Recreate` strategy; more than one replica has not been
+  tested.
+- **Stuck `PENDING` orders.** A `broker_orders` row that stays `PENDING` with
+  no `provider_order_id` means a pod died, or lost the database, between
+  reserving the trade and recording the broker's answer. Retries of that trade
+  intent wait 30 seconds and then return `ABORTED` until the row is reconciled
+  by hand. Look for a
+  broker order whose client order ID is the trade intent ID. If one exists,
+  fill in the row's `provider_order_id` and `status`; if not, delete the row.
 - **Health checks.** Startup and readiness are TCP checks on the gRPC port;
   liveness is `GET /healthz`. None of them checks PostgreSQL, Redis, OpenBao,
   Livro or Ativos, so read the logs after every deploy.

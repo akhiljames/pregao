@@ -29,7 +29,6 @@ flowchart TD
         Pregao --> CacheManager["Market Data Cache Manager"]
         Pregao --> ExecRouter["Idempotent Trade Router"]
         Pregao --> Reconciler["Balance Audit & Reconciler"]
-        ExecRouter --> LockMap["In-Memory Intent Locks (sync.Map)"]
     end
 
     subgraph SecurityTier["Zero-Trust Cryptography"]
@@ -39,7 +38,7 @@ flowchart TD
 
     subgraph StorageTier["State & Cache Layer"]
         CacheManager -->|5s Fresh / 24h Stale Fallback| Redis[("Redis Cache (:6379)")]
-        ExecRouter -->|Order State & Idempotency| Postgres[("PostgreSQL 14+ (:5434)")]
+        ExecRouter -->|Order State & Idempotency Reservations| Postgres[("PostgreSQL 14+ (:5434)")]
     end
 
     subgraph ExternalBroker["External Liquidity Venue"]
@@ -69,7 +68,8 @@ flowchart TD
    - Plaintext credentials exist in process memory for the bare minimum execution duration and are wiped with byte-level zeroing using `defer creds.Zero()` immediately after signing HTTP requests.
 4. **Guaranteed Order Idempotency & Race Condition Prevention**:
    - Every execution request requires a unique `trade_intent_id` and client `idempotency_key`.
-   - In-flight duplicate requests are serialized via in-memory execution locks (`sync.Map`), ensuring that rapid bursts or retries from upstream engines result in **exactly one** broker order placement.
+   - Each request first reserves a `PENDING` row in PostgreSQL. Unique constraints on `trade_intent_id` and `(tenant_id, idempotency_key)` let only one request through to the broker, on any replica, so rapid bursts or retries from upstream engines result in **exactly one** broker order placement.
+   - A duplicate that arrives while the first request is still in flight waits for it and returns the same order. If the first request is still unresolved after 30 seconds, the duplicate fails with gRPC `ABORTED`.
 5. **Two-Phase Async Settlement Pipeline**:
    - Broker execution reports are received asynchronously via webhooks, persisted to PostgreSQL order records, and dispatched to:
      - **Livro**: Finalizes the 2PC hold (`CaptureHold`) for buys, releasing excess slippage buffer cash back to the investor, or credits cash (`Credit`) for sells.
@@ -85,7 +85,9 @@ flowchart TD
 
 ```mermaid
 stateDiagram-v2
-    [*] --> SUBMITTED: ExecuteTrade RPC Accepted
+    [*] --> PENDING: ExecuteTrade Reserves Trade Intent
+    PENDING --> SUBMITTED: Broker Accepts Order
+    PENDING --> [*]: Dispatch Failed (Reservation Released)
     SUBMITTED --> PARTIALLY_FILLED: Partial Execution Report
     PARTIALLY_FILLED --> PARTIALLY_FILLED: Subsequent Partial Fill
     PARTIALLY_FILLED --> FILLED: Final Execution Report (100%)
@@ -99,7 +101,8 @@ stateDiagram-v2
 
 | Order Status | Description | Action Taken |
 | :--- | :--- | :--- |
-| `SUBMITTED` | Order successfully signed and dispatched to broker. | Order record created in PostgreSQL. |
+| `PENDING` | Trade intent reserved; broker not yet called or not yet answered. | Reservation row created in PostgreSQL. Deleted if the order never reaches the broker. |
+| `SUBMITTED` | Order successfully signed and dispatched to broker. | Reservation row updated with the broker order ID. |
 | `PARTIALLY_FILLED` | Partial fill received from broker webhook. | Cumulative filled quantity updated; proportional hold captured in Livro; partial shares synced to Ativos. |
 | `FILLED` | Order 100% completed. | Final hold captured; remainder slippage buffer released in Livro; final shares synced to Ativos. |
 | `CANCELED` | Order was canceled prior to fill. | Full hold voided in Livro; no shares added in Ativos. |
@@ -381,29 +384,39 @@ sequenceDiagram
     autonumber
     participant Ativos as Ativos PMS
     participant Pregao as Pregão Service
-    participant Locks as sync.Map Mutex
     participant DB as PostgreSQL
     participant Vault as OpenBao Transit
     participant Binance as Binance API
 
     Ativos->>Pregao: ExecuteTrade(intent_id="intent-101", idem_key="idem-abc")
-    Pregao->>Locks: Acquire mutex for key "tenant-1:intent-101"
-    Pregao->>DB: SELECT order WHERE trade_intent_id = "intent-101"
-    alt Order Already Exists (Duplicate / Retry)
-        DB-->>Pregao: Existing order (provider_order_id="binance-999")
-        Pregao->>Locks: Release mutex
-        Pregao-->>Ativos: ExecuteTradeResponse (provider_order_id="binance-999", status="SUBMITTED")
+    Pregao->>DB: INSERT INTO broker_orders (status="PENDING") ON CONFLICT DO NOTHING
+    alt Row Already Exists (Duplicate / Retry)
+        DB-->>Pregao: 0 rows inserted
+        Pregao->>DB: SELECT order WHERE trade_intent_id = "intent-101"
+        loop While the existing row is PENDING (up to 30s)
+            Pregao->>DB: Re-check every 100ms (take over if the reservation was released)
+        end
+        alt Existing order recorded
+            DB-->>Pregao: Existing order (provider_order_id="binance-999")
+            Pregao-->>Ativos: ExecuteTradeResponse (provider_order_id="binance-999", status="SUBMITTED")
+        else Still PENDING after 30s
+            Pregao-->>Ativos: gRPC ABORTED
+        end
     else Fresh Request
-        DB-->>Pregao: No order found
+        DB-->>Pregao: 1 row inserted (reservation held)
         Pregao->>DB: SELECT ciphertexts FROM broker_credentials
         Pregao->>Vault: Decrypt batch (ciphertext_api_key, ciphertext_api_secret)
         Vault-->>Pregao: Plaintext credentials in memory
         Pregao->>Binance: POST /api/v3/order (HMAC-SHA256 signed)
         Pregao->>Pregao: defer creds.Zero() (Memory cleared!)
-        Binance-->>Pregao: Order accepted (orderId="binance-1001")
-        Pregao->>DB: INSERT INTO broker_orders (status="SUBMITTED")
-        Pregao->>Locks: Release mutex
-        Pregao-->>Ativos: ExecuteTradeResponse (provider_order_id="binance-1001", status="SUBMITTED")
+        alt Order accepted
+            Binance-->>Pregao: Order accepted (orderId="binance-1001")
+            Pregao->>DB: UPDATE broker_orders SET provider_order_id, status="SUBMITTED"
+            Pregao-->>Ativos: ExecuteTradeResponse (provider_order_id="binance-1001", status="SUBMITTED")
+        else Credentials, decryption or broker call failed
+            Pregao->>DB: DELETE reservation (status="PENDING")
+            Pregao-->>Ativos: gRPC error (safe to retry)
+        end
     end
 ```
 

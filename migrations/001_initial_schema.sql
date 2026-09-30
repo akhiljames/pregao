@@ -46,5 +46,11 @@ CREATE INDEX IF NOT EXISTS idx_broker_orders_provider_order_id
 CREATE INDEX IF NOT EXISTS idx_broker_orders_idempotency_key 
     ON broker_orders (tenant_id, idempotency_key);
 
+-- One order per (tenant, idempotency key). With the UNIQUE trade_intent_id this lets
+-- ExecuteTrade reserve a row before it calls the broker. Requests without a key store ''.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_broker_orders_tenant_idempotency_key
+    ON broker_orders (tenant_id, idempotency_key)
+    WHERE idempotency_key <> '';
+
 CREATE INDEX IF NOT EXISTS idx_broker_orders_intent_id 
     ON broker_orders (trade_intent_id);

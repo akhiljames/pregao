@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -55,6 +56,18 @@ func (m *mockOrdersRepo) CreateOrder(ctx context.Context, order *db.BrokerOrder)
 	key := order.Provider + ":" + order.ProviderOrderID
 	m.orders[key] = order
 	return nil
+}
+
+func (m *mockOrdersRepo) ReserveOrder(ctx context.Context, order *db.BrokerOrder) (bool, error) {
+	return false, errors.New("ReserveOrder is not used by the fill processor")
+}
+
+func (m *mockOrdersRepo) ConfirmOrder(ctx context.Context, id uuid.UUID, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error {
+	return errors.New("ConfirmOrder is not used by the fill processor")
+}
+
+func (m *mockOrdersRepo) ReleaseOrder(ctx context.Context, id uuid.UUID) error {
+	return errors.New("ReleaseOrder is not used by the fill processor")
 }
 
 func (m *mockOrdersRepo) UpdateOrderFill(ctx context.Context, provider, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error {

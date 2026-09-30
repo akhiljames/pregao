@@ -21,7 +21,13 @@ type OrdersRepository interface {
 	GetOrderByIntentID(ctx context.Context, tradeIntentID uuid.UUID) (*BrokerOrder, error)
 	GetOrderByIdempotencyKey(ctx context.Context, tenantID, idempotencyKey string) (*BrokerOrder, error)
 	GetOrderByProviderOrderID(ctx context.Context, provider, providerOrderID string) (*BrokerOrder, error)
-	CreateOrder(ctx context.Context, order *BrokerOrder) error
+	// ReserveOrder inserts the order as a PENDING row with no provider order ID. It returns false,
+	// writing nothing, when a row already holds the same trade intent or (tenant, idempotency key).
+	ReserveOrder(ctx context.Context, order *BrokerOrder) (bool, error)
+	// ConfirmOrder records the broker's response on a PENDING reservation.
+	ConfirmOrder(ctx context.Context, id uuid.UUID, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error
+	// ReleaseOrder deletes a PENDING reservation whose order never reached the broker.
+	ReleaseOrder(ctx context.Context, id uuid.UUID) error
 	UpdateOrderFill(ctx context.Context, provider, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error
 }
 
@@ -67,7 +73,7 @@ func (r *pgOrdersRepo) GetOrderByProviderOrderID(ctx context.Context, provider, 
 	return r.scanOrder(r.pool.QueryRow(ctx, query, provider, providerOrderID))
 }
 
-func (r *pgOrdersRepo) CreateOrder(ctx context.Context, order *BrokerOrder) error {
+func (r *pgOrdersRepo) ReserveOrder(ctx context.Context, order *BrokerOrder) (bool, error) {
 	if order.ID == uuid.Nil {
 		order.ID = uuid.New()
 	}
@@ -78,15 +84,19 @@ func (r *pgOrdersRepo) CreateOrder(ctx context.Context, order *BrokerOrder) erro
 	if order.UpdatedAt.IsZero() {
 		order.UpdatedAt = now
 	}
+	order.Status = StatusPending
 
+	// provider_order_id stays NULL until ConfirmOrder. ON CONFLICT covers both the UNIQUE
+	// trade_intent_id and the partial unique index on (tenant_id, idempotency_key).
 	query := `
 		INSERT INTO broker_orders (
-			id, trade_intent_id, tenant_id, user_id, provider, provider_order_id, symbol, side,
+			id, trade_intent_id, tenant_id, user_id, provider, symbol, side,
 			target_quantity, status, filled_quantity, average_fill_price, idempotency_key,
 			portfolio_id, livro_hold_id, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+		ON CONFLICT DO NOTHING
 	`
-	_, err := r.pool.Exec(
+	cmdTag, err := r.pool.Exec(
 		ctx,
 		query,
 		order.ID,
@@ -94,7 +104,6 @@ func (r *pgOrdersRepo) CreateOrder(ctx context.Context, order *BrokerOrder) erro
 		order.TenantID,
 		order.UserID,
 		order.Provider,
-		order.ProviderOrderID,
 		order.Symbol,
 		order.Side,
 		order.TargetQuantity,
@@ -108,7 +117,31 @@ func (r *pgOrdersRepo) CreateOrder(ctx context.Context, order *BrokerOrder) erro
 		order.UpdatedAt,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to insert broker order: %w", err)
+		return false, fmt.Errorf("failed to reserve broker order: %w", err)
+	}
+	return cmdTag.RowsAffected() == 1, nil
+}
+
+func (r *pgOrdersRepo) ConfirmOrder(ctx context.Context, id uuid.UUID, providerOrderID string, status string, filledQuantity decimal.Decimal, avgFillPrice decimal.Decimal) error {
+	query := `
+		UPDATE broker_orders
+		SET provider_order_id = $1, status = $2, filled_quantity = $3, average_fill_price = $4, updated_at = NOW()
+		WHERE id = $5 AND status = $6
+	`
+	cmdTag, err := r.pool.Exec(ctx, query, providerOrderID, status, filledQuantity, avgFillPrice, id, StatusPending)
+	if err != nil {
+		return fmt.Errorf("failed to confirm broker order: %w", err)
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return ErrOrderNotFound
+	}
+	return nil
+}
+
+func (r *pgOrdersRepo) ReleaseOrder(ctx context.Context, id uuid.UUID) error {
+	query := `DELETE FROM broker_orders WHERE id = $1 AND status = $2`
+	if _, err := r.pool.Exec(ctx, query, id, StatusPending); err != nil {
+		return fmt.Errorf("failed to release broker order reservation: %w", err)
 	}
 	return nil
 }
