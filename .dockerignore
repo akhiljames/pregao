@@ -1,0 +1,12 @@
+.git
+.claude-flow/
+bin/
+dist/
+deploy/
+docs/
+*.test
+*.out
+*.log
+**/.env
+**/.env.*
+.DS_Store

@@ -1,0 +1,7 @@
+# Applied once by hand (see docs/DEPLOYMENT.md). Deliberately not listed in
+# kustomization.yaml: the namespace is shared with other services, and
+# `kubectl delete -k deploy/k8s` must never take it down with Pregão.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod

@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pregao
+  labels:
+    app.kubernetes.io/name: pregao
+spec:
+  # Keep at 1. ExecuteTrade deduplicates concurrent requests with an in-process
+  # lock and places the broker order before the order row is written, so two
+  # pods can both send the same order to the broker.
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pregao
+  # Recreate, not RollingUpdate, for the same reason: the old pod must be gone
+  # before the new one serves. Costs a few seconds of downtime per rollout.
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pregao
+    spec:
+      imagePullSecrets:
+        - name: ghcr-pull
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pregao
+          # Tag is set by `images` in kustomization.yaml.
+          image: ghcr.io/akhiljames/pregao
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: grpc
+              containerPort: 50053
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: pregao-config
+            - secretRef:
+                name: pregao-secrets
+          # The gRPC port is the last thing to open at startup. Neither probe
+          # checks PostgreSQL, Redis or OpenBao: the server starts without them.
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]

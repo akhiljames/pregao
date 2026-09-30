@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: prod
+
+resources:
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+
+images:
+  - name: ghcr.io/akhiljames/pregao
+    # Set to the tag you pushed. Keep the quotes: an all-digit or 1e5-style
+    # short SHA would otherwise be parsed as a number.
+    newTag: "latest"

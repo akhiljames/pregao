@@ -11,6 +11,7 @@ Pregão is the consolidated Order Management System (OMS) and Market Data micros
 ## Documentation
 
 - 📖 **Comprehensive Integration Guide & API Reference**: [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md)
+- 🚀 **Build, Push to GHCR & Deploy to Kubernetes**: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
 ---
 

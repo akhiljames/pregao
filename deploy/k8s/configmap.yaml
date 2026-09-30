@@ -1,0 +1,24 @@
+# Non-sensitive settings. Sensitive ones (DATABASE_URL, OPENBAO_TOKEN,
+# REDIS_PASSWORD) live in the pregao-secrets Secret — see docs/DEPLOYMENT.md.
+#
+# Pods read these only at startup; after changing a value run:
+#   kubectl -n prod rollout restart deployment/pregao
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pregao-config
+  labels:
+    app.kubernetes.io/name: pregao
+data:
+  # Must match the containerPorts in deployment.yaml and targetPorts in service.yaml.
+  PORT: "50053"
+  HTTP_PORT: "8080"
+  # A bare name resolves only inside the prod namespace; services elsewhere
+  # need <service>.<namespace>.svc.cluster.local.
+  REDIS_ADDR: "redis.infra.svc.cluster.local:6379"
+  OPENBAO_ADDR: "http://openbao.infra.svc.cluster.local:8200"
+  OPENBAO_TRANSIT_KEY: "broker-keys"
+  BINANCE_BASE_URL: "https://api.binance.com"
+  LIVRO_GRPC_ADDR: "livro:50051"
+  ATIVOS_GRPC_ADDR: "ativos:50052"
+  DEFAULT_BROKER: "BINANCE"

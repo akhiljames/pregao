@@ -1,4 +1,7 @@
 bin/
 dist/
 *.log
+.env
+.env.*
 .DS_Store
+.claude-flow/
