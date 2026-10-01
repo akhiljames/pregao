@@ -1,4 +1,4 @@
-# github.com/akhiljames/proto v0.0.0-20260926025431-5bd2937fdcea
+# github.com/akhiljames/proto v0.0.0-20261001032555-386155a93806
 ## explicit; go 1.25.0
 github.com/akhiljames/proto/gen/go/ativos/v1
 github.com/akhiljames/proto/gen/go/livro/v1
